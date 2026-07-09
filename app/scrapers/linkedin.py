@@ -6,7 +6,10 @@ from bs4 import BeautifulSoup
 import httpx
 import asyncio
 import random
+import logging
 from fake_useragent import UserAgent
+
+logger = logging.getLogger(__name__)
 
 class LinkedInScraper(BaseScraper):
     def __init__(self):
@@ -68,7 +71,7 @@ class LinkedInScraper(BaseScraper):
                 try:
                     response = await client.get(self.base_url, params=params, headers=headers)
                     if response.status_code == 429:
-                        self.logger.warning("[LinkedIn] Rate limited! (429). Stopping fetch.")
+                        logger.warning("[LinkedIn] Rate limited! (429). Stopping fetch.")
                         break
                     
                     response.raise_for_status()
@@ -118,7 +121,7 @@ class LinkedInScraper(BaseScraper):
                             all_jobs.append(job_data)
                             
                         except Exception as e:
-                            self.logger.warning(f"[LinkedIn] Error parsing a job card: {e}")
+                            logger.warning(f"[LinkedIn] Error parsing a job card: {e}")
                             continue
                             
                     # Polite sleep between pagination requests
@@ -126,7 +129,7 @@ class LinkedInScraper(BaseScraper):
                         await asyncio.sleep(random.uniform(2.0, 4.0))
                         
                 except httpx.HTTPError as e:
-                    self.logger.error(f"[LinkedIn] HTTP Error during fetch: {e}")
+                    logger.error(f"[LinkedIn] HTTP Error during fetch: {e}")
                     break
                     
         return all_jobs

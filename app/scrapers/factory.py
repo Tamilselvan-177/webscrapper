@@ -4,6 +4,7 @@ from app.scrapers.lever import LeverScraper
 from app.scrapers.smartrecruiters import SmartRecruitersScraper
 from app.scrapers.personio import PersonioScraper
 from app.scrapers.ashby import AshbyScraper
+from app.scrapers.linkedin import LinkedInScraper
 
 def get_scraper(source: str) -> BaseScraper:
     """
@@ -15,7 +16,8 @@ def get_scraper(source: str) -> BaseScraper:
         "lever": LeverScraper,
         "smartrecruiters": SmartRecruitersScraper,
         "personio": PersonioScraper,
-        "ashby": AshbyScraper
+        "ashby": AshbyScraper,
+        "linkedin": LinkedInScraper
     }
     
     source_key = source.lower()

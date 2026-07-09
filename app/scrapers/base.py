@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 import logging
+import httpx
 from pydantic import ValidationError
 from app.models.job import JobSchema
 from app.models.filters import SearchFilters
