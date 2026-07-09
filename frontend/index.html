@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WattVision Job Scraper</title>
+    <!-- Google Fonts: Inter and JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=JetBrains+Mono:wght@700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="dashboard-header">
+        <h1><span class="accent-cyan">⚡</span> WattVision <span class="accent-secondary">Jobs</span></h1>
+        <p class="subtitle">Real-time ATS monitoring and aggregation dashboard</p>
+    </header>
+
+    <main class="dashboard-container">
+        <!-- Search Controls -->
+        <section class="controls-panel">
+            <form id="search-form" class="search-grid">
+                <div class="input-group">
+                    <label for="source">Source</label>
+                    <select id="source" name="source" required>
+                        <option value="greenhouse">Greenhouse</option>
+                        <option value="lever">Lever</option>
+                        <option value="smartrecruiters">SmartRecruiters</option>
+                        <option value="personio">Personio</option>
+                        <option value="ashby">Ashby</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label for="company">Company Slug</label>
+                    <input type="text" id="company" name="company" placeholder="e.g. contentful" required>
+                </div>
+                <div class="input-group">
+                    <label for="keyword">Keyword (Optional)</label>
+                    <input type="text" id="keyword" name="keyword" placeholder="e.g. engineer">
+                </div>
+                <div class="button-group">
+                    <button type="submit" class="btn-primary" id="search-btn">
+                        <span>Fetch Jobs</span>
+                    </button>
+                </div>
+            </form>
+        </section>
+
+        <!-- Status Panel -->
+        <section id="status-panel" class="status-panel hidden">
+            <div class="alert-box error hidden" id="error-alert">
+                <span class="icon">🔌</span>
+                <span id="error-msg">Error fetching data.</span>
+            </div>
+            <div class="metrics-row hidden" id="metrics-panel">
+                <div class="metric-card">
+                    <span class="metric-label">Jobs Found</span>
+                    <span class="metric-value" id="count-value">0</span>
+                </div>
+            </div>
+            <div class="loader hidden" id="loader">Fetching live data...</div>
+        </section>
+
+        <!-- Job Grid -->
+        <section class="job-grid" id="job-grid">
+            <!-- Job cards will be injected here by JS -->
+        </section>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
