@@ -95,6 +95,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 const applicantsBadge = (job.applicants !== null && job.applicants !== undefined) ? `<div class="meta-item" style="font-size: 0.8em; margin-top: 4px; color: var(--accent-primary);">👥 ${job.applicants} applicants</div>` : '';
                 
+                const descHtml = job.description && job.description !== "Click the 'View Job' button to read the full description on LinkedIn."
+                    ? `<div class="job-description" style="font-size: 0.85em; margin-top: 8px; opacity: 0.9; max-height: 60px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;">${job.description}</div>`
+                    : '';
+                
                 card.innerHTML = `
                     <div style="display: flex; align-items: center; margin-bottom: 12px;">
                         ${logoHtml}
@@ -109,6 +113,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     ${dateBadge}
                     ${applicantsBadge}
+                    ${descHtml}
                     <a href="${job.apply_url || job.job_url}" target="_blank" class="apply-btn" style="margin-top: 12px;">View Job</a>
                 `;
                 

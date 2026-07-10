@@ -140,9 +140,36 @@ class LinkedInScraper(BaseScraper):
         return all_jobs
 
     async def get_job_details(self, raw_job: Dict[str, Any]) -> Dict[str, Any]:
-        # To avoid being banned immediately, we won't fetch individual job description pages
-        # for every single result. The guest API is too fragile.
-        # We will just pass the raw_job forward and rely on the summary data.
+        job_id = raw_job.get("id")
+        if not job_id:
+            return raw_job
+            
+        detail_url = f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                headers = await self._get_random_headers()
+                response = await client.get(detail_url, headers=headers)
+                
+                if response.status_code == 200:
+                    soup = BeautifulSoup(response.text, "html.parser")
+                    
+                    # Description is usually in a div with class show-more-less-html__markup
+                    desc_div = soup.find("div", class_="show-more-less-html__markup")
+                    if desc_div:
+                        raw_job["description"] = desc_div.get_text(separator="\n", strip=True)
+                    
+                    # We might also get applicants count if we want: num-applicants__caption
+                    app_span = soup.find("span", class_="num-applicants__caption")
+                    if app_span:
+                        import re
+                        match = re.search(r'\d+', app_span.get_text())
+                        if match:
+                            raw_job["applicants"] = int(match.group())
+                            
+            except Exception as e:
+                logger.warning(f"[LinkedIn] Failed to fetch details for job {job_id}: {e}")
+                
         return raw_job
 
     async def normalize(self, raw_job: Dict[str, Any]) -> Dict[str, Any]:
@@ -170,11 +197,11 @@ class LinkedInScraper(BaseScraper):
             "currency": None,
             "job_url": raw_job.get("job_url", ""),
             "apply_url": raw_job.get("job_url", ""),
-            "description": "Click the 'View Job' button to read the full description on LinkedIn.",
+            "description": raw_job.get("description") or "Click the 'View Job' button to read the full description on LinkedIn.",
             "posted_date": raw_job.get("date", ""),
             "open_time": raw_job.get("date", ""),
             "close_time": None,
             "source": self.source_name,
             "company_logo": raw_job.get("company_logo", None),
-            "applicants": None
+            "applicants": raw_job.get("applicants", None)
         }
