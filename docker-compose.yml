@@ -7,7 +7,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "8080:8000"
     environment:
       - OBSCURA_WS_URL=ws://obscura:9222/devtools/browser
     depends_on:
