@@ -15,7 +15,7 @@ class LinkedInScraper(BaseScraper):
     def __init__(self):
         super().__init__()
         self.source_name = "LinkedIn"
-        self.base_url = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings"
+        self.base_url = "https://www.linkedin.com/jobs/search"
         # We need a dedicated httpx client for LinkedIn because it requires aggressive User-Agent rotation
         self.ua = UserAgent()
 
@@ -118,6 +118,11 @@ class LinkedInScraper(BaseScraper):
                             date_elem = card.find("time", class_="job-search-card__listdate") or card.find("time", class_="job-search-card__listdate--new")
                             job_data["date"] = date_elem.get("datetime") if date_elem else ""
                             
+                            # Company Logo
+                            img_elem = card.find("img", class_="artdeco-entity-image")
+                            if img_elem and img_elem.has_attr("data-delayed-url"):
+                                job_data["company_logo"] = img_elem["data-delayed-url"]
+                            
                             all_jobs.append(job_data)
                             
                         except Exception as e:
@@ -169,5 +174,7 @@ class LinkedInScraper(BaseScraper):
             "posted_date": raw_job.get("date", ""),
             "open_time": raw_job.get("date", ""),
             "close_time": None,
-            "source": self.source_name
+            "source": self.source_name,
+            "company_logo": raw_job.get("company_logo", None),
+            "applicants": None
         }

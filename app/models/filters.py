@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 class SearchFilters(BaseModel):
     country: Optional[str] = None
@@ -12,8 +12,9 @@ class SearchFilters(BaseModel):
     salary_max: Optional[float] = None
     currency: Optional[str] = None
     skills: Optional[str] = None
-    company: Optional[str] = None
-    keyword: Optional[str] = None
+    source: str = Field(..., description="The source to scrape (e.g., greenhouse, lever, linkedin)")
+    company: Optional[str] = Field(None, description="The company slug or name")
+    keyword: Optional[str] = Field(None, description="Search by keyword or job title")
     visa: Optional[bool] = None
     posted_days: Optional[int] = None
     page: int = 1

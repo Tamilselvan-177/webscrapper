@@ -23,6 +23,7 @@
                 <div class="input-group">
                     <label for="source">Source</label>
                     <select id="source" name="source" required>
+                        <option value="global">Global Search (All Companies)</option>
                         <option value="greenhouse">Greenhouse</option>
                         <option value="lever">Lever</option>
                         <option value="smartrecruiters">SmartRecruiters</option>
@@ -32,12 +33,16 @@
                     </select>
                 </div>
                 <div class="input-group">
-                    <label for="company">Company Slug</label>
-                    <input type="text" id="company" name="company" placeholder="e.g. contentful" required>
+                    <label for="company">Company Slug / Name (Optional)</label>
+                    <input type="text" id="company" name="company" placeholder="e.g. amazon (Leave blank for global search)">
                 </div>
                 <div class="input-group">
                     <label for="keyword">Keyword (Optional)</label>
                     <input type="text" id="keyword" name="keyword" placeholder="e.g. engineer">
+                </div>
+                <div class="input-group">
+                    <label for="location">Location (Optional)</label>
+                    <input type="text" id="location" name="location" placeholder="e.g. Europe, Dubai">
                 </div>
                 <div class="button-group">
                     <button type="submit" class="btn-primary" id="search-btn">

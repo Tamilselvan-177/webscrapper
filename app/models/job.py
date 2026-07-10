@@ -24,3 +24,4 @@ class JobSchema(BaseModel):
     apply_url: Optional[str] = None
     source: str
     company_logo: Optional[str] = None
+    applicants: Optional[int] = None

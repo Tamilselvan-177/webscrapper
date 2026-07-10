@@ -17,7 +17,8 @@ def get_scraper(source: str) -> BaseScraper:
         "smartrecruiters": SmartRecruitersScraper,
         "personio": PersonioScraper,
         "ashby": AshbyScraper,
-        "linkedin": LinkedInScraper
+        "linkedin": LinkedInScraper,
+        "global": LinkedInScraper
     }
     
     source_key = source.lower()

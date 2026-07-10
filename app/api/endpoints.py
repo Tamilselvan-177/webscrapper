@@ -9,7 +9,7 @@ router = APIRouter()
 @router.get("/jobs", response_model=List[JobSchema], summary="Search jobs across ATS sources")
 async def search_jobs(
     source: str = Query(..., description="The source ATS to scrape (e.g. greenhouse, lever, smartrecruiters, personio, ashby)"),
-    company: str = Query(..., description="The company slug to search for (e.g. 'contentful' for Greenhouse)"),
+    company: Optional[str] = Query(None, description="The company slug to search for (e.g. 'contentful' for Greenhouse)"),
     keyword: Optional[str] = Query(None, description="Search by keyword or job title"),
     country: Optional[str] = Query(None, description="Filter by country"),
     city: Optional[str] = Query(None, description="Filter by city"),
@@ -28,6 +28,7 @@ async def search_jobs(
         raise HTTPException(status_code=400, detail=str(e))
         
     filters = SearchFilters(
+        source=source,
         company=company, 
         keyword=keyword, 
         country=country, 
