@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  backend:
+    image: tamilselvan177/jobscraper-backend:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - OBSCURA_WS_URL=ws://obscura:9222/devtools/browser
+    depends_on:
+      - obscura
+    restart: always
+
+  obscura:
+    image: tamilselvan177/jobscraper-obscura:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.obscura
+    ports:
+      - "9222:9222"
+    restart: always
+    shm_size: '1gb' # Browsers need larger shared memory
+
+  frontend:
+    image: tamilselvan177/jobscraper-frontend:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "3000:80"
+    restart: always

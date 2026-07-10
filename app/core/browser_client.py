@@ -14,13 +14,20 @@ class BrowserClient:
         self.browser: Optional[Browser] = None
 
     async def start(self):
+        import os
         self.playwright = await async_playwright().start()
-        launch_args = {"headless": True}
-        if self.executable_path:
-            logger.info(f"Launching custom browser engine at: {self.executable_path}")
-            launch_args["executable_path"] = self.executable_path
-            
-        self.browser = await self.playwright.chromium.launch(**launch_args)
+        
+        ws_url = os.environ.get("OBSCURA_WS_URL")
+        if ws_url:
+            logger.info(f"Connecting to remote browser engine at: {ws_url}")
+            self.browser = await self.playwright.chromium.connect_over_cdp(ws_url)
+        else:
+            launch_args = {"headless": True}
+            if self.executable_path:
+                logger.info(f"Launching custom browser engine at: {self.executable_path}")
+                launch_args["executable_path"] = self.executable_path
+                
+            self.browser = await self.playwright.chromium.launch(**launch_args)
 
     async def get_page(self) -> Page:
         if not self.browser:

@@ -1,0 +1,19 @@
+# Multi-stage build for Obscura
+# Stage 1: Build Obscura using Rust
+FROM rust:latest as builder
+WORKDIR /build
+RUN git clone https://github.com/h4ckf0r0day/obscura.git .
+RUN cargo build --release
+
+# Stage 2: Final runtime image (needs Chromium dependencies for headless rendering)
+FROM mcr.microsoft.com/playwright:v1.44.0-jammy
+WORKDIR /app
+
+# Copy the compiled obscura binary from the builder stage
+COPY --from=builder /build/target/release/obscura /usr/local/bin/obscura
+
+# Expose the CDP port
+EXPOSE 9222
+
+# Start obscura as a CDP server
+CMD ["obscura", "--headless", "--remote-debugging-port=9222", "--remote-debugging-address=0.0.0.0"]
