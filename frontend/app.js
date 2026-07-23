@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const companyLabel = document.querySelector('label[for="company"]');
 
     sourceSelect.addEventListener('change', (e) => {
-        if (e.target.value === 'linkedin' || e.target.value === 'global') {
+        if (e.target.value === 'linkedin' || e.target.value === 'global' || e.target.value === 'adzuna') {
             companyInput.required = false;
             companyLabel.textContent = 'Company Slug / Name (Optional)';
             companyInput.placeholder = 'e.g. amazon (Leave blank for global search)';

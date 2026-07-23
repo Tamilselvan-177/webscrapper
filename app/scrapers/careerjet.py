@@ -21,22 +21,29 @@ class CareerjetScraper(BaseScraper):
         keyword = " ".join(filter(None, [filters.keyword, filters.company]))
         location = " ".join(filter(None, [filters.city, filters.country]))
 
+        # CareerJet public API - v2 endpoint
         params = {
             "locale_code": "en_GB",
-            "keywords": keyword or "jobs",
+            "keywords": keyword or "developer",
             "location": location or "",
-            "pagesize": 25,
+            "pagesize": 20,
             "page": page,
             "sort": "date",
-            "affid": "1a2b3c4d5e6f7890",  # dummy affiliate ID, required but not validated
+            "affid": "careejet_public_api",
         }
 
         async with httpx.AsyncClient(timeout=15.0) as client:
             try:
-                response = await client.get(self.base_url, params=params)
+                response = await client.get(
+                    "https://public.api.careerjet.net/search",
+                    params=params,
+                    headers={"User-Agent": "Mozilla/5.0 JobScraper/1.0"}
+                )
                 response.raise_for_status()
                 data = response.json()
-                all_jobs = data.get("jobs", [])
+                jobs = data.get("jobs", [])
+                logger.info(f"[CareerJet] Found {len(jobs)} jobs, type={data.get('type')}, hits={data.get('hits')}")
+                all_jobs = jobs
             except httpx.HTTPError as e:
                 logger.error(f"[CareerJet] HTTP Error: {e}")
             except Exception as e:

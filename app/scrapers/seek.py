@@ -29,20 +29,38 @@ class SeekScraper(BaseScraper):
         keyword = " ".join(filter(None, [filters.keyword, filters.company]))
         location = " ".join(filter(None, [filters.city, filters.country]))
 
+        # SEEK uses this undocumented search endpoint
         params = {
-            "siteKey": "AU-Main",
             "where": location or "All Australia",
-            "what": keyword or "",
+            "keywords": keyword or "",
             "page": page,
             "pageSize": 25,
+            "sortmode": "ListedDate",
         }
 
         async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
             try:
-                response = await client.get(self.base_url, params=params, headers=await self._get_headers())
+                response = await client.get(
+                    "https://www.seek.com.au/api/chalice-search/v4/search",
+                    params=params,
+                    headers={
+                        **await self._get_headers(),
+                        "seek-request-site": "candidate-seek-au",
+                        "seek-request-country": "AU",
+                    }
+                )
+                if response.status_code == 404:
+                    # Try alternative endpoint
+                    response = await client.get(
+                        "https://www.seek.com.au/jobs-api/v5/search",
+                        params={"keywords": keyword, "where": location or "Australia", "page": page},
+                        headers=await self._get_headers()
+                    )
                 response.raise_for_status()
                 data = response.json()
-                all_jobs = data.get("data", [])
+                results = data.get("data", []) or data.get("jobs", []) or data.get("results", [])
+                logger.info(f"[SEEK] Got {len(results)} jobs from API")
+                all_jobs = results
             except httpx.HTTPError as e:
                 logger.error(f"[SEEK] HTTP Error: {e}")
             except Exception as e:
