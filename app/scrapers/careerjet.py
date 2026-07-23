@@ -30,6 +30,8 @@ class CareerjetScraper(BaseScraper):
             "page": page,
             "sort": "date",
             "affid": "careejet_public_api",
+            "user_ip": "1.2.3.4",
+            "user_agent": "Mozilla/5.0 JobScraper/1.0"
         }
 
         async with httpx.AsyncClient(timeout=15.0) as client:
