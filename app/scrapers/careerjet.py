@@ -14,7 +14,7 @@ class CareerjetScraper(BaseScraper):
     def __init__(self):
         super().__init__()
         self.source_name = "CareerJet"
-        self.base_url = "http://public.api.careerjet.net/search"
+        self.base_url = "http://public.api.careerjet.net/search"  # CareerJet only supports HTTP, not HTTPS
 
     async def get_jobs(self, filters: SearchFilters, page: int = 1) -> List[Dict[str, Any]]:
         all_jobs = []
@@ -35,7 +35,7 @@ class CareerjetScraper(BaseScraper):
         async with httpx.AsyncClient(timeout=15.0) as client:
             try:
                 response = await client.get(
-                    "https://public.api.careerjet.net/search",
+                    self.base_url,
                     params=params,
                     headers={"User-Agent": "Mozilla/5.0 JobScraper/1.0"}
                 )
