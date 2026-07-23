@@ -36,22 +36,31 @@ class BaseScraper(ABC):
             logger.info(f"[{self.source_name}] Starting search for company '{filters.company}'")
             raw_jobs = await self.get_jobs(filters)
             
-            for raw_job in raw_jobs:
-                try:
-                    # Some ATS require fetching details separately
-                    job_detail = await self.get_job_details(raw_job)
+            import asyncio
+            sem = asyncio.Semaphore(15)  # Limit concurrent requests to avoid instant bans
+
+            async def process_job(raw_job):
+                async with sem:
+                    try:
+                        # Some ATS require fetching details separately
+                        job_detail = await self.get_job_details(raw_job)
+                        
+                        # Normalize to dict
+                        job_dict = await self.normalize(job_detail)
+                        
+                        # Validate strictly using Pydantic JobSchema
+                        return JobSchema.model_validate(job_dict)
+                        
+                    except ValidationError as ve:
+                        logger.error(f"[{self.source_name}] Schema validation failed for job: {ve}")
+                    except Exception as e:
+                        logger.error(f"[{self.source_name}] Error processing job: {e}")
+                    return None
                     
-                    # Normalize to dict
-                    job_dict = await self.normalize(job_detail)
-                    
-                    # Validate strictly using Pydantic JobSchema
-                    validated_job = JobSchema.model_validate(job_dict)
+            results = await asyncio.gather(*[process_job(job) for job in raw_jobs])
+            for validated_job in results:
+                if validated_job is not None:
                     normalized_jobs.append(validated_job)
-                    
-                except ValidationError as ve:
-                    logger.error(f"[{self.source_name}] Schema validation failed for job: {ve}")
-                except Exception as e:
-                    logger.error(f"[{self.source_name}] Error processing job: {e}")
                     
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:

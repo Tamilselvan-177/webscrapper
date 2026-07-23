@@ -10,6 +10,9 @@ services:
       - "8080:8000"
     environment:
       - OBSCURA_WS_URL=ws://obscura:9222/devtools/browser
+      - ADZUNA_APP_ID=71b0f298
+      - ADZUNA_APP_KEY=8f2ce8aef294190f8892004471d453d4
+      - REED_API_KEY=01c0076f-09e5-4b02-a6f2-5b3d108a711c
     depends_on:
       - obscura
     restart: always

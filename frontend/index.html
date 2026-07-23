@@ -23,13 +23,28 @@
                 <div class="input-group">
                     <label for="source">Source</label>
                     <select id="source" name="source" required>
-                        <option value="global">Global Search (All Companies)</option>
+                        <option value="global">🌍 Global Search (LinkedIn)</option>
+                        <optgroup label="─── Official APIs ───────────────">
+                        <option value="adzuna">Adzuna</option>
+                        <option value="reed">Reed.co.uk 🇬🇧</option>
+                        <option value="careerjet">CareerJet</option>
+                        </optgroup>
+                        <optgroup label="─── Job Portals ─────────────────">
+                        <option value="linkedin">LinkedIn</option>
+                        <option value="indeed">Indeed</option>
+                        <option value="glassdoor">Glassdoor</option>
+                        <option value="seek">SEEK Australia 🇦🇺</option>
+                        <option value="totaljobs">Totaljobs 🇬🇧</option>
+                        <option value="cvlibrary">CV-Library 🇬🇧</option>
+                        <option value="stepstone">StepStone 🇩🇪</option>
+                        </optgroup>
+                        <optgroup label="─── ATS Systems ─────────────────">
                         <option value="greenhouse">Greenhouse</option>
                         <option value="lever">Lever</option>
                         <option value="smartrecruiters">SmartRecruiters</option>
                         <option value="personio">Personio</option>
                         <option value="ashby">Ashby</option>
-                        <option value="linkedin">LinkedIn</option>
+                        </optgroup>
                     </select>
                 </div>
                 <div class="input-group">
