@@ -15,8 +15,8 @@ These parameters must be provided in every request, otherwise the API will retur
 
 | Parameter | Type | Required | Description | Example |
 | :--- | :--- | :---: | :--- | :--- |
-| **`source`** | `string` | ✅ Yes | The target Applicant Tracking System (ATS) to scrape. The factory currently supports specific engines. | `greenhouse`, `lever`, `smartrecruiters`, `personio`, `ashby`, `linkedin` |
-| **`company`** | `string` | ✅ Yes | The unique identifier or "slug" the company uses on their ATS board. This is usually found in the URL of their careers page. | `contentful` (for Greenhouse), `smartrecruiters` (for SmartRecruiters) |
+| **`source`** | `string` | ✅ Yes | The target Applicant Tracking System (ATS) or job portal to scrape. The factory currently supports 15 sources. | `greenhouse`, `lever`, `smartrecruiters`, `personio`, `ashby`, `adzuna`, `reed`, `careerjet`, `linkedin`, `indeed`, `glassdoor`, `seek`, `totaljobs`, `cvlibrary`, `stepstone` |
+| **`company`** | `string` | ❌ No | The unique identifier or "slug" the company uses on their ATS board. This is required for most ATS boards, but not for all job portals. | `contentful` (for Greenhouse), `ikea` (for SmartRecruiters) |
 
 ---
 

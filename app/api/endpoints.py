@@ -88,7 +88,17 @@ async def get_sources():
             "lever",
             "smartrecruiters",
             "personio",
-            "ashby"
+            "ashby",
+            "adzuna",
+            "reed",
+            "careerjet",
+            "linkedin",
+            "indeed",
+            "glassdoor",
+            "seek",
+            "totaljobs",
+            "cvlibrary",
+            "stepstone"
         ]
     }
 

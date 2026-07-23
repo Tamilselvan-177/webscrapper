@@ -37,58 +37,76 @@ class IndeedScraper(BaseScraper):
             "start": start
         }
 
-        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-            try:
-                response = await client.get(self.base_url, params=params, headers=await self._get_headers())
-                response.raise_for_status()
-                soup = BeautifulSoup(response.text, "html.parser")
+        try:
+            from app.core.browser_client import BrowserClient
+            import asyncio
+            browser_client = BrowserClient(executable_path=None)
+            
+            page_obj = await browser_client.get_page()
+            logger.info(f"[Indeed] Navigating to {self.base_url}?q={keyword}&l={location}&start={start}")
+            
+            # Construct URL
+            url = f"{self.base_url}?q={keyword or 'jobs'}&l={location or ''}&start={start}"
+            
+            await page_obj.goto(url, wait_until="networkidle", timeout=20000)
+            await asyncio.sleep(2) # wait for jobs to render
+            
+            html = await page_obj.content()
+            await browser_client.close()
+            
+            soup = BeautifulSoup(html, "html.parser")
 
-                # Indeed uses data-jk attribute for job key
-                job_cards = soup.find_all("div", class_="job_seen_beacon")
-                if not job_cards:
-                    job_cards = soup.find_all("div", attrs={"data-jk": True})
+            # Indeed uses data-jk attribute for job key
+            job_cards = soup.find_all("div", class_="job_seen_beacon")
+            if not job_cards:
+                job_cards = soup.find_all("div", attrs={"data-jk": True})
+            if not job_cards:
+                # fallback
+                job_cards = soup.find_all("div", class_=lambda c: c and "job_seen_beacon" in c)
 
-                for card in job_cards:
-                    try:
-                        job_data = {}
-                        # Job key (ID)
-                        jk = card.get("data-jk") or card.find(attrs={"data-jk": True})
-                        if hasattr(jk, "get"):
-                            jk = jk.get("data-jk", "")
-                        job_data["id"] = str(jk) if jk else ""
+            logger.info(f"[Indeed] Found {len(job_cards)} job cards via Browser")
 
-                        # Title
-                        title_elem = card.find("h2", class_="jobTitle") or card.find("span", {"title": True})
-                        job_data["title"] = title_elem.get_text(strip=True) if title_elem else ""
+            for card in job_cards:
+                try:
+                    job_data = {}
+                    # Job key (ID)
+                    jk = card.get("data-jk") or card.find(attrs={"data-jk": True})
+                    if hasattr(jk, "get"):
+                        jk = jk.get("data-jk", "")
+                    job_data["id"] = str(jk) if jk else ""
 
-                        # Company
-                        company_elem = card.find("span", attrs={"data-testid": "company-name"}) or card.find(class_="companyName")
-                        job_data["company"] = company_elem.get_text(strip=True) if company_elem else ""
+                    # Title
+                    title_elem = card.find("h2", class_="jobTitle") or card.find("span", {"title": True})
+                    job_data["title"] = title_elem.get_text(strip=True) if title_elem else ""
 
-                        # Location
-                        loc_elem = card.find("div", attrs={"data-testid": "text-location"}) or card.find(class_="companyLocation")
-                        job_data["location_raw"] = loc_elem.get_text(strip=True) if loc_elem else ""
+                    # Company
+                    company_elem = card.find("span", attrs={"data-testid": "company-name"}) or card.find(class_="companyName")
+                    job_data["company"] = company_elem.get_text(strip=True) if company_elem else ""
 
-                        # Date
-                        date_elem = card.find("span", attrs={"data-testid": "myJobsStateDate"}) or card.find(class_="date")
-                        job_data["date"] = date_elem.get_text(strip=True) if date_elem else ""
+                    # Location
+                    loc_elem = card.find("div", attrs={"data-testid": "text-location"}) or card.find(class_="companyLocation")
+                    job_data["location_raw"] = loc_elem.get_text(strip=True) if loc_elem else ""
 
-                        # Job URL
-                        if job_data["id"]:
-                            job_data["job_url"] = f"https://www.indeed.com/viewjob?jk={job_data['id']}"
-                        else:
-                            link = card.find("a", href=True)
-                            job_data["job_url"] = "https://www.indeed.com" + link["href"] if link else ""
+                    # Date
+                    date_elem = card.find("span", attrs={"data-testid": "myJobsStateDate"}) or card.find(class_="date")
+                    job_data["date"] = date_elem.get_text(strip=True) if date_elem else ""
 
-                        if job_data.get("title") and job_data.get("id"):
-                            all_jobs.append(job_data)
+                    # Job URL
+                    if job_data["id"]:
+                        job_data["job_url"] = f"https://www.indeed.com/viewjob?jk={job_data['id']}"
+                    else:
+                        link = card.find("a", href=True)
+                        job_data["job_url"] = "https://www.indeed.com" + link["href"] if link else ""
 
-                    except Exception as e:
-                        logger.warning(f"[Indeed] Error parsing card: {e}")
-                        continue
+                    if job_data.get("title") and job_data.get("id"):
+                        all_jobs.append(job_data)
 
-            except httpx.HTTPError as e:
-                logger.error(f"[Indeed] HTTP Error: {e}")
+                except Exception as e:
+                    logger.warning(f"[Indeed] Error parsing card: {e}")
+                    continue
+
+        except Exception as e:
+            logger.error(f"[Indeed] Browser Error: {e}")
 
         return all_jobs
 

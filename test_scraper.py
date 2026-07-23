@@ -5,8 +5,8 @@ from app.models.filters import SearchFilters
 
 async def test_greenhouse():
     scraper = GreenhouseScraper()
-    filters = SearchFilters(company="contentful", keyword="engineer", country="Germany")
-    print(f"Searching Greenhouse for '{filters.keyword}' at {filters.company} in {filters.country}...")
+    filters = SearchFilters(source="greenhouse", company="contentful")
+    print(f"Searching Greenhouse at {filters.company}...")
     
     try:
         jobs = await scraper.search(filters)

@@ -43,7 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const keyword = document.getElementById('keyword').value;
         const locationInput = document.getElementById('location').value;
         
-        const host = window.location.hostname;
+        const host = window.location.hostname || 'localhost';
         let url = `http://${host}:8080/api/v1/jobs?source=${encodeURIComponent(source)}&company=${encodeURIComponent(company)}`;
         if (keyword) {
             url += `&keyword=${encodeURIComponent(keyword)}`;
