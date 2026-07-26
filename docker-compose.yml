@@ -7,6 +7,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
+      - "8000:8000"
       - "8080:8000"
     environment:
       - OBSCURA_WS_URL=ws://obscura:9222/devtools/browser
@@ -16,6 +17,8 @@ services:
     depends_on:
       - obscura
     restart: always
+    shm_size: '1gb'
+    ipc: host
 
   obscura:
     image: zenika/alpine-chrome
@@ -23,7 +26,7 @@ services:
     ports:
       - "9222:9222"
     restart: always
-    shm_size: '1gb' # Browsers need larger shared memory
+    shm_size: '1gb'
 
   frontend:
     image: tamilselvan177/jobscraper-frontend:latest

@@ -12,15 +12,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const companyInput = document.getElementById('company');
     const companyLabel = document.querySelector('label[for="company"]');
 
+    const atsSystems = ['greenhouse', 'lever', 'smartrecruiters', 'personio', 'ashby'];
+
     sourceSelect.addEventListener('change', (e) => {
-        if (e.target.value === 'linkedin' || e.target.value === 'global' || e.target.value === 'adzuna') {
+        if (atsSystems.includes(e.target.value)) {
+            companyInput.required = true;
+            companyLabel.textContent = 'Company Slug (Required for ATS)';
+            companyInput.placeholder = 'e.g. openai, netflix, contentful';
+        } else {
             companyInput.required = false;
             companyLabel.textContent = 'Company Slug / Name (Optional)';
-            companyInput.placeholder = 'e.g. amazon (Leave blank for global search)';
-        } else {
-            companyInput.required = true;
-            companyLabel.textContent = 'Company Slug';
-            companyInput.placeholder = 'e.g. contentful';
+            companyInput.placeholder = 'e.g. amazon (Leave blank for general search)';
         }
     });
 
@@ -39,17 +41,22 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Build URL
         const source = document.getElementById('source').value;
-        const company = document.getElementById('company').value;
-        const keyword = document.getElementById('keyword').value;
-        const locationInput = document.getElementById('location').value;
+        const company = document.getElementById('company').value.trim();
+        const keyword = document.getElementById('keyword').value.trim();
+        const locationInput = document.getElementById('location').value.trim();
         
         const host = window.location.hostname || 'localhost';
-        let url = `http://${host}:8080/api/v1/jobs?source=${encodeURIComponent(source)}&company=${encodeURIComponent(company)}`;
+        // Dynamically connect to port 8080 (Docker) or 8000 (Local Uvicorn)
+        const port = window.location.port === '3000' || window.location.port === '' ? '8080' : '8000';
+        let url = `http://${host}:${port}/api/v1/jobs?source=${encodeURIComponent(source)}`;
+        
+        if (company) {
+            url += `&company=${encodeURIComponent(company)}`;
+        }
         if (keyword) {
             url += `&keyword=${encodeURIComponent(keyword)}`;
         }
         if (locationInput) {
-            // Using city as a generic location parameter to pass to the backend
             url += `&city=${encodeURIComponent(locationInput)}`;
         }
 
