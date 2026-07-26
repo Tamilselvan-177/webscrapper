@@ -21,35 +21,59 @@ class CareerjetScraper(BaseScraper):
         keyword = " ".join(filter(None, [filters.keyword, filters.company]))
         location = " ".join(filter(None, [filters.city, filters.country]))
 
-        # CareerJet public API - v2 endpoint
-        params = {
-            "locale_code": "en_GB",
-            "keywords": keyword or "developer",
-            "location": location or "",
-            "pagesize": 20,
-            "page": page,
-            "sort": "date",
-            "affid": "careejet_public_api",
-            "user_ip": "1.2.3.4",
-            "user_agent": "Mozilla/5.0 JobScraper/1.0"
-        }
+        try:
+            from app.core.browser_client import BrowserClient
+            import asyncio
+            from bs4 import BeautifulSoup
+            import urllib.parse
+            
+            browser_client = BrowserClient(executable_path=None)
+            page_obj = await browser_client.get_page()
+            
+            # Use UK domain by default
+            kw_encoded = urllib.parse.quote(keyword or 'developer')
+            loc_encoded = urllib.parse.quote(location or '')
+            
+            url = f"https://www.careerjet.co.uk/jobs?s={kw_encoded}&l={loc_encoded}&p={page}"
+            logger.info(f"[CareerJet] Navigating to {url}")
+            
+            await page_obj.goto(url, wait_until="domcontentloaded", timeout=20000)
+            await asyncio.sleep(2)
+            
+            html = await page_obj.content()
+            await browser_client.close()
+            
+            soup = BeautifulSoup(html, "html.parser")
+            job_cards = soup.find_all("article", class_="job")
+            
+            for card in job_cards:
+                try:
+                    job_data = {}
+                    link = card.find("h2").find("a") if card.find("h2") else None
+                    if not link:
+                        continue
+                        
+                    job_data["job_url"] = "https://www.careerjet.co.uk" + link.get("href", "")
+                    job_data["id"] = card.get("data-job-id", "")
+                    job_data["title"] = link.get_text(strip=True)
+                    
+                    company_elem = card.find("p", class_="company")
+                    job_data["company"] = company_elem.get_text(strip=True) if company_elem else ""
+                    
+                    loc_elem = card.find("ul", class_="location")
+                    job_data["location_raw"] = loc_elem.get_text(strip=True) if loc_elem else ""
+                    
+                    desc_elem = card.find("div", class_="desc")
+                    job_data["description"] = desc_elem.get_text(strip=True) if desc_elem else ""
+                    
+                    if job_data.get("title"):
+                        all_jobs.append(job_data)
+                except Exception as e:
+                    logger.warning(f"[CareerJet] Error parsing card: {e}")
+                    continue
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            try:
-                response = await client.get(
-                    self.base_url,
-                    params=params,
-                    headers={"User-Agent": "Mozilla/5.0 JobScraper/1.0"}
-                )
-                response.raise_for_status()
-                data = response.json()
-                jobs = data.get("jobs", [])
-                logger.info(f"[CareerJet] Found {len(jobs)} jobs, type={data.get('type')}, hits={data.get('hits')}")
-                all_jobs = jobs
-            except httpx.HTTPError as e:
-                logger.error(f"[CareerJet] HTTP Error: {e}")
-            except Exception as e:
-                logger.error(f"[CareerJet] Error: {e}")
+        except Exception as e:
+            logger.error(f"[CareerJet] Browser Error: {e}")
 
         return all_jobs
 

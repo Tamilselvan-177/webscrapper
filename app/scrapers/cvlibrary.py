@@ -33,47 +33,58 @@ class CvLibraryScraper(BaseScraper):
             "p": page,
         }
 
-        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-            try:
-                response = await client.get(self.base_url, params=params, headers=await self._get_headers())
-                response.raise_for_status()
-                soup = BeautifulSoup(response.text, "html.parser")
+        try:
+            from app.core.browser_client import BrowserClient
+            import asyncio
+            browser_client = BrowserClient(executable_path=None)
+            
+            page_obj = await browser_client.get_page()
+            url = f"{self.base_url}?q={keyword}&geo={location}&p={page}"
+            logger.info(f"[CV-Library] Navigating to {url}")
+            
+            await page_obj.goto(url, wait_until="domcontentloaded", timeout=20000)
+            await asyncio.sleep(2)
+            
+            html = await page_obj.content()
+            await browser_client.close()
+            
+            soup = BeautifulSoup(html, "html.parser")
 
-                job_cards = soup.find_all("li", class_="job")
-                if not job_cards:
-                    job_cards = soup.find_all("article")
+            job_cards = soup.find_all("li", class_="job")
+            if not job_cards:
+                job_cards = soup.find_all("article")
 
-                for card in job_cards:
-                    try:
-                        job_data = {}
-                        link = card.find("a", class_="job-title") or card.find("h2", class_="title")
-                        if not link:
-                            link = card.find("a", href=True)
-                        if not link:
-                            continue
-
-                        href = link.get("href", "")
-                        job_data["job_url"] = href if href.startswith("http") else f"https://www.cv-library.co.uk{href}"
-                        job_data["id"] = href.split("/")[-1].split("?")[0] if href else ""
-                        job_data["title"] = link.get_text(strip=True)
-
-                        company_elem = card.find(class_="company") or card.find(class_="employer")
-                        job_data["company"] = company_elem.get_text(strip=True) if company_elem else ""
-
-                        loc_elem = card.find(class_="location") or card.find(class_="job-location")
-                        job_data["location_raw"] = loc_elem.get_text(strip=True) if loc_elem else ""
-
-                        date_elem = card.find("time") or card.find(class_="date-posted")
-                        job_data["date"] = date_elem.get_text(strip=True) if date_elem else ""
-
-                        if job_data.get("title"):
-                            all_jobs.append(job_data)
-                    except Exception as e:
-                        logger.warning(f"[CV-Library] Error parsing card: {e}")
+            for card in job_cards:
+                try:
+                    job_data = {}
+                    link = card.find("a", class_="job-title") or card.find("h2", class_="title")
+                    if not link:
+                        link = card.find("a", href=True)
+                    if not link:
                         continue
 
-            except httpx.HTTPError as e:
-                logger.error(f"[CV-Library] HTTP Error: {e}")
+                    href = link.get("href", "")
+                    job_data["job_url"] = href if href.startswith("http") else f"https://www.cv-library.co.uk{href}"
+                    job_data["id"] = href.split("/")[-1].split("?")[0] if href else ""
+                    job_data["title"] = link.get_text(strip=True)
+
+                    company_elem = card.find(class_="company") or card.find(class_="employer")
+                    job_data["company"] = company_elem.get_text(strip=True) if company_elem else ""
+
+                    loc_elem = card.find(class_="location") or card.find(class_="job-location")
+                    job_data["location_raw"] = loc_elem.get_text(strip=True) if loc_elem else ""
+
+                    date_elem = card.find("time") or card.find(class_="date-posted")
+                    job_data["date"] = date_elem.get_text(strip=True) if date_elem else ""
+
+                    if job_data.get("title"):
+                        all_jobs.append(job_data)
+                except Exception as e:
+                    logger.warning(f"[CV-Library] Error parsing card: {e}")
+                    continue
+
+        except Exception as e:
+            logger.error(f"[CV-Library] Browser Error: {e}")
 
         return all_jobs
 

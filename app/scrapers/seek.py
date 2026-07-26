@@ -36,7 +36,7 @@ class SeekScraper(BaseScraper):
         try:
             page_obj = await self.browser_client.get_page()
             logger.info(f"[SEEK] Navigating to {url}")
-            await page_obj.goto(url, wait_until="networkidle", timeout=20000)
+            await page_obj.goto(url, wait_until="domcontentloaded", timeout=20000)
             
             # Wait a moment for dynamic jobs to load
             await asyncio.sleep(2)

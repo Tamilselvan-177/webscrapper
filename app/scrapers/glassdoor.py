@@ -49,15 +49,43 @@ class GlassdoorScraper(BaseScraper):
             "query": "query JobsSearchQuery($keyword: String, $location: String, $pageNumber: Int, $numJobsToShow: Int) { jobListings(contextHolder: {searchParams: {keyword: $keyword, locationStr: $location, numPerPage: $numJobsToShow, pageNumber: $pageNumber}}) { jobListings { jobview { job { jobTitleText listingId description } employer { name squareLogoUrl } jobLocation { locationName } header { ageInDays } } } } }"
         }]
 
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        try:
+            from app.core.browser_client import BrowserClient
+            import asyncio
+            import json
+            browser_client = BrowserClient(executable_path=None)
+            
+            page_obj = await browser_client.get_page()
+            logger.info(f"[Glassdoor] Navigating to glassdoor homepage to acquire cookies")
+            await page_obj.goto("https://www.glassdoor.com/Job/index.htm", wait_until="domcontentloaded", timeout=20000)
+            await asyncio.sleep(2)
+            
+            # Execute fetch in the browser context
+            js_code = f"""
+            async () => {{
+                const res = await fetch('/graph', {{
+                    method: 'POST',
+                    headers: {{
+                        'Content-Type': 'application/json',
+                        'gd-csrf-token': 'Ft6oHEMHy-HQKcPPLuX00A:0mg8oYElsKhfSSjHv74Vr3bRQzlw3j2gFm-HNh7gHZg1jV2xsQgWj3_Md8a15x7KLzjrB1A6Jl6'
+                    }},
+                    body: JSON.stringify({json.dumps(payload)})
+                }});
+                return await res.json();
+            }}
+            """
             try:
-                response = await client.post(self.base_url, json=payload, headers=await self._get_headers())
-                response.raise_for_status()
-                data = response.json()
-                listings = data[0].get("data", {}).get("jobListings", {}).get("jobListings", [])
-                all_jobs = listings
+                data = await page_obj.evaluate(js_code)
+                if data and isinstance(data, list) and len(data) > 0:
+                    listings = data[0].get("data", {}).get("jobListings", {}).get("jobListings", [])
+                    all_jobs = listings
             except Exception as e:
-                logger.error(f"[Glassdoor] Error: {e}")
+                logger.error(f"[Glassdoor] Evaluate Error: {e}")
+            
+            await browser_client.close()
+
+        except Exception as e:
+            logger.error(f"[Glassdoor] Browser Error: {e}")
 
         return all_jobs
 

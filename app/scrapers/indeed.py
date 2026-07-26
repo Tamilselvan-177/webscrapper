@@ -48,7 +48,7 @@ class IndeedScraper(BaseScraper):
             # Construct URL
             url = f"{self.base_url}?q={keyword or 'jobs'}&l={location or ''}&start={start}"
             
-            await page_obj.goto(url, wait_until="networkidle", timeout=20000)
+            await page_obj.goto(url, wait_until="domcontentloaded", timeout=20000)
             await asyncio.sleep(2) # wait for jobs to render
             
             html = await page_obj.content()

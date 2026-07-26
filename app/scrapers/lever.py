@@ -20,11 +20,20 @@ class LeverScraper(BaseScraper):
         params = {"mode": "json"}
         if filters.city:
             params["location"] = filters.city
-        if filters.keyword:
-            params["department"] = filters.keyword # Lever maps some keywords to department
             
-        response = await self.client.get(url, params=params)
-        raw_jobs = response.json()
+        try:
+            response = await self.client.get(url, params=params)
+            raw_jobs = response.json()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"[Lever] Error fetching jobs for '{company}': {e}")
+            return []
+        
+        # Lever returns a list on success, or a dict with error on failure
+        if not isinstance(raw_jobs, list):
+            import logging
+            logging.getLogger(__name__).warning(f"[Lever] Company '{company}' not found or invalid response")
+            return []
         
         # Local filtering for exact matches that the API might ignore
         filtered_jobs = []

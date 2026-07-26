@@ -35,45 +35,56 @@ class StepstoneScraper(BaseScraper):
 
         params = {"page": page}
 
-        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-            try:
-                response = await client.get(url, params=params, headers=await self._get_headers())
-                response.raise_for_status()
-                soup = BeautifulSoup(response.text, "html.parser")
+        try:
+            from app.core.browser_client import BrowserClient
+            import asyncio
+            browser_client = BrowserClient(executable_path=None)
+            
+            page_obj = await browser_client.get_page()
+            url_with_params = f"{url}?page={page}"
+            logger.info(f"[StepStone] Navigating to {url_with_params}")
+            
+            await page_obj.goto(url_with_params, wait_until="domcontentloaded", timeout=20000)
+            await asyncio.sleep(2)
+            
+            html = await page_obj.content()
+            await browser_client.close()
+            
+            soup = BeautifulSoup(html, "html.parser")
 
-                job_cards = soup.find_all("article", attrs={"data-at": "job-item"})
-                if not job_cards:
-                    job_cards = soup.find_all("article")
+            job_cards = soup.find_all("article", attrs={"data-at": "job-item"})
+            if not job_cards:
+                job_cards = soup.find_all("article")
 
-                for card in job_cards:
-                    try:
-                        job_data = {}
-                        job_data["id"] = card.get("data-jobid", card.get("id", ""))
+            for card in job_cards:
+                try:
+                    job_data = {}
+                    job_data["id"] = card.get("data-jobid", card.get("id", ""))
 
-                        title_elem = card.find("h2") or card.find(attrs={"data-at": "job-title"})
-                        job_data["title"] = title_elem.get_text(strip=True) if title_elem else ""
+                    title_elem = card.find("h2") or card.find(attrs={"data-at": "job-title"})
+                    job_data["title"] = title_elem.get_text(strip=True) if title_elem else ""
 
-                        company_elem = card.find(attrs={"data-at": "job-item-company-name"}) or card.find(class_="company")
-                        job_data["company"] = company_elem.get_text(strip=True) if company_elem else ""
+                    company_elem = card.find(attrs={"data-at": "job-item-company-name"}) or card.find(class_="company")
+                    job_data["company"] = company_elem.get_text(strip=True) if company_elem else ""
 
-                        loc_elem = card.find(attrs={"data-at": "job-item-location"}) or card.find(class_="location")
-                        job_data["location_raw"] = loc_elem.get_text(strip=True) if loc_elem else ""
+                    loc_elem = card.find(attrs={"data-at": "job-item-location"}) or card.find(class_="location")
+                    job_data["location_raw"] = loc_elem.get_text(strip=True) if loc_elem else ""
 
-                        date_elem = card.find("time")
-                        job_data["date"] = date_elem.get("datetime", "") if date_elem else ""
+                    date_elem = card.find("time")
+                    job_data["date"] = date_elem.get("datetime", "") if date_elem else ""
 
-                        link = card.find("a", href=True)
-                        href = link["href"] if link else ""
-                        job_data["job_url"] = href if href.startswith("http") else f"https://www.stepstone.com{href}"
+                    link = card.find("a", href=True)
+                    href = link["href"] if link else ""
+                    job_data["job_url"] = href if href.startswith("http") else f"https://www.stepstone.com{href}"
 
-                        if job_data.get("title"):
-                            all_jobs.append(job_data)
-                    except Exception as e:
-                        logger.warning(f"[StepStone] Error parsing card: {e}")
-                        continue
+                    if job_data.get("title"):
+                        all_jobs.append(job_data)
+                except Exception as e:
+                    logger.warning(f"[StepStone] Error parsing card: {e}")
+                    continue
 
-            except httpx.HTTPError as e:
-                logger.error(f"[StepStone] HTTP Error: {e}")
+        except Exception as e:
+            logger.error(f"[StepStone] Browser Error: {e}")
 
         return all_jobs
 

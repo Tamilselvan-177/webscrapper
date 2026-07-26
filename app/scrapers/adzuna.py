@@ -21,55 +21,58 @@ class AdzunaScraper(BaseScraper):
 
     async def get_jobs(self, filters: SearchFilters, page: int = 1) -> List[Dict[str, Any]]:
         all_jobs = []
-        if not self.app_id or not self.app_key:
-            return all_jobs
-
-        # Adzuna requires a country code. If city/country provided, we try to guess, but default to 'ae' (UAE/Dubai) or 'gb'
-        # Adzuna supported codes: gb, us, au, br, ca, fr, de, in, it, nl, nz, pl, ru, sg, za, at, ae
-        country_code = "gb" # Default to UK
-        
-        location_raw = ""
-        if filters.city:
-            location_raw += filters.city.lower()
-        if filters.country:
-            location_raw += " " + filters.country.lower()
+        try:
+            from app.core.browser_client import BrowserClient
+            import asyncio
+            from bs4 import BeautifulSoup
+            import urllib.parse
             
-        if "dubai" in location_raw or "ae" in location_raw or "emirates" in location_raw:
-            country_code = "ae"
-        elif "india" in location_raw:
-            country_code = "in"
-        elif "us" in location_raw or "america" in location_raw:
-            country_code = "us"
-
-        keyword = filters.keyword or ""
-        if filters.company:
-            keyword += f" {filters.company}"
+            browser_client = BrowserClient(executable_path=None)
+            page_obj = await browser_client.get_page()
             
-        where = filters.city or ""
-
-        url = f"https://api.adzuna.com/v1/api/jobs/{country_code}/search/{page}"
-        params = {
-            "app_id": self.app_id,
-            "app_key": self.app_key,
-            "results_per_page": 25,
-            "what": keyword.strip(),
-            "where": where
-        }
-
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            try:
-                response = await client.get(url, params=params)
-                response.raise_for_status()
-                data = response.json()
-                
-                results = data.get("results", [])
-                for raw_job in results:
-                    all_jobs.append(raw_job)
+            kw_encoded = urllib.parse.quote(filters.keyword or 'developer')
+            loc_encoded = urllib.parse.quote(filters.city or 'US')
+            
+            url = f"https://www.adzuna.com/search?q={kw_encoded}&w={loc_encoded}"
+            logger.info(f"[Adzuna] Navigating to {url}")
+            
+            await page_obj.goto(url, wait_until="domcontentloaded", timeout=20000)
+            await asyncio.sleep(2)
+            
+            html = await page_obj.content()
+            await browser_client.close()
+            
+            soup = BeautifulSoup(html, "html.parser")
+            job_cards = soup.find_all("div", attrs={"data-aid": True})
+            
+            for card in job_cards:
+                try:
+                    job_data = {}
+                    link = card.find("h2").find("a") if card.find("h2") else card.find("a")
+                    if not link:
+                        continue
+                        
+                    job_data["job_url"] = link.get("href", "")
+                    job_data["id"] = card.get("data-aid", "")
+                    job_data["title"] = link.get_text(strip=True)
                     
-            except httpx.HTTPError as e:
-                logger.error(f"[Adzuna] HTTP Error: {e}")
-            except Exception as e:
-                logger.error(f"[Adzuna] Unexpected error: {e}")
+                    company_elem = card.find("div", class_="ui-company")
+                    job_data["company"] = company_elem.get_text(strip=True) if company_elem else ""
+                    
+                    loc_elem = card.find("div", class_="ui-location")
+                    job_data["location_raw"] = loc_elem.get_text(strip=True) if loc_elem else ""
+                    
+                    desc_elem = card.find("span", attrs={"data-aid": "job-snippet"})
+                    job_data["description"] = desc_elem.get_text(strip=True) if desc_elem else ""
+                    
+                    if job_data.get("title"):
+                        all_jobs.append(job_data)
+                except Exception as e:
+                    logger.warning(f"[Adzuna] Error parsing card: {e}")
+                    continue
+
+        except Exception as e:
+            logger.error(f"[Adzuna] Browser Error: {e}")
 
         return all_jobs
 
