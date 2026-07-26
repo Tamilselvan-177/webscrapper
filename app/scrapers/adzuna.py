@@ -12,9 +12,9 @@ class AdzunaScraper(BaseScraper):
     def __init__(self):
         super().__init__()
         self.source_name = "Adzuna"
-        # Reading API keys from environment
-        self.app_id = os.getenv("ADZUNA_APP_ID")
-        self.app_key = os.getenv("ADZUNA_APP_KEY")
+        # Reading API keys from environment (defaulting to working test keys if not set)
+        self.app_id = os.getenv("ADZUNA_APP_ID", "71b0f298")
+        self.app_key = os.getenv("ADZUNA_APP_KEY", "8f2ce8aef294190f8892004471d453d4")
         
         if not self.app_id or not self.app_key:
             logger.error("Adzuna API credentials (ADZUNA_APP_ID / ADZUNA_APP_KEY) are missing in environment variables.")
@@ -22,57 +22,27 @@ class AdzunaScraper(BaseScraper):
     async def get_jobs(self, filters: SearchFilters, page: int = 1) -> List[Dict[str, Any]]:
         all_jobs = []
         try:
-            from app.core.browser_client import BrowserClient
-            import asyncio
-            from bs4 import BeautifulSoup
-            import urllib.parse
-            
-            browser_client = BrowserClient(executable_path=None)
-            page_obj = await browser_client.get_page()
-            
-            kw_encoded = urllib.parse.quote(filters.keyword or 'developer')
-            loc_encoded = urllib.parse.quote(filters.city or 'US')
-            
-            url = f"https://www.adzuna.com/search?q={kw_encoded}&w={loc_encoded}"
-            logger.info(f"[Adzuna] Navigating to {url}")
-            
-            await page_obj.goto(url, wait_until="domcontentloaded", timeout=20000)
-            await asyncio.sleep(2)
-            
-            html = await page_obj.content()
-            await browser_client.close()
-            
-            soup = BeautifulSoup(html, "html.parser")
-            job_cards = soup.find_all("div", attrs={"data-aid": True})
-            
-            for card in job_cards:
-                try:
-                    job_data = {}
-                    link = card.find("h2").find("a") if card.find("h2") else card.find("a")
-                    if not link:
-                        continue
-                        
-                    job_data["job_url"] = link.get("href", "")
-                    job_data["id"] = card.get("data-aid", "")
-                    job_data["title"] = link.get_text(strip=True)
-                    
-                    company_elem = card.find("div", class_="ui-company")
-                    job_data["company"] = company_elem.get_text(strip=True) if company_elem else ""
-                    
-                    loc_elem = card.find("div", class_="ui-location")
-                    job_data["location_raw"] = loc_elem.get_text(strip=True) if loc_elem else ""
-                    
-                    desc_elem = card.find("span", attrs={"data-aid": "job-snippet"})
-                    job_data["description"] = desc_elem.get_text(strip=True) if desc_elem else ""
-                    
-                    if job_data.get("title"):
-                        all_jobs.append(job_data)
-                except Exception as e:
-                    logger.warning(f"[Adzuna] Error parsing card: {e}")
-                    continue
+            country = (filters.country or "gb").lower().replace("uk", "gb").replace("united kingdom", "gb").replace("germany", "de").replace("australia", "au").replace("canada", "ca").replace("usa", "us").replace("united states", "us")
+            if country not in ["gb", "us", "de", "fr", "au", "ca", "nl", "it", "es", "pl", "in", "br", "at", "ch", "ru", "za", "nz"]:
+                country = "gb"
 
+            keyword = urllib.parse.quote(filters.keyword or filters.company or "developer")
+            location = urllib.parse.quote(filters.city or "")
+            
+            url = f"https://api.adzuna.com/v1/api/jobs/{country}/search/{page}?app_id={self.app_id}&app_key={self.app_key}&what={keyword}&results_per_page=20"
+            if location:
+                url += f"&where={location}"
+
+            logger.info(f"[Adzuna] Fetching from API: {url}")
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(url)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    all_jobs = data.get("results", [])
+                else:
+                    logger.warning(f"[Adzuna] API returned status {resp.status_code}: {resp.text}")
         except Exception as e:
-            logger.error(f"[Adzuna] Browser Error: {e}")
+            logger.error(f"[Adzuna] API Error: {e}")
 
         return all_jobs
 
@@ -82,10 +52,10 @@ class AdzunaScraper(BaseScraper):
 
     async def normalize(self, raw_job: Dict[str, Any]) -> Dict[str, Any]:
         company_obj = raw_job.get("company", {})
-        company_name = company_obj.get("display_name", "")
+        company_name = company_obj.get("display_name", "") if isinstance(company_obj, dict) else str(company_obj)
         
         location_obj = raw_job.get("location", {})
-        area = location_obj.get("display_name", "")
+        area = location_obj.get("display_name", "") if isinstance(location_obj, dict) else str(location_obj)
 
         return {
             "id": str(raw_job.get("id", "")),
