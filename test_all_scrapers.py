@@ -7,10 +7,10 @@ from app.models.job import JobSchema
 async def run_tests():
     sources = [
         ("greenhouse", "contentful", None, None),
-        ("lever", "figma", None, None),
-        ("smartrecruiters", "ikea", None, None),
+        ("lever", "palantir", None, None),
+        ("smartrecruiters", "experian", None, None),
         ("personio", "personio", None, None),
-        ("ashby", "notion", None, None),
+        ("ashby", "openai", None, None),
         ("adzuna", None, "developer", "London"),
         ("reed", None, "engineer", "London"),
         ("careerjet", None, "developer", "London"),

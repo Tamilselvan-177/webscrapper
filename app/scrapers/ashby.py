@@ -8,17 +8,22 @@ class AshbyScraper(BaseScraper):
     def __init__(self):
         super().__init__()
         self.source_name = "Ashby"
-        self.base_url = "https://jobs.ashbyhq.com/api/non-auth/boards"
+        self.base_url = "https://api.ashbyhq.com/posting-api/job-board"
         self.client = HTTPClient(base_url=self.base_url)
 
     async def get_jobs(self, filters: SearchFilters, page: int = 1) -> List[Dict[str, Any]]:
         company = filters.company.lower() if filters.company else "ashby"
         self.current_company = company 
         
-        url = f"/{company}/jobs"
-        response = await self.client.get(url)
-        data = response.json()
-        raw_jobs = data.get("jobs", [])
+        url = f"/{company}"
+        try:
+            response = await self.client.get(url)
+            data = response.json()
+            raw_jobs = data.get("jobs", [])
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"[Ashby] Error fetching jobs for '{company}': {e}")
+            return []
         
         # Local filtering
         filtered_jobs = []
@@ -33,15 +38,8 @@ class AshbyScraper(BaseScraper):
         return filtered_jobs
 
     async def get_job_details(self, raw_job: Dict[str, Any]) -> Dict[str, Any]:
-        # The list endpoint often doesn't contain descriptionHtml, we must fetch details
-        # Wait, Ashby list endpoint *does* contain summary, but maybe not the full HTML. Let's fetch details to be safe.
-        # However, Ashby has a specific API for job details:
-        # https://jobs.ashbyhq.com/api/non-auth/boards/{company}/jobs/{id}
-        job_id = raw_job.get("id")
-        url = f"/{self.current_company}/jobs/{job_id}"
-        response = await self.client.get(url)
-        data = response.json()
-        return data.get("job", raw_job) # Fallback to raw_job if details fail
+        # Ashby's posting-api endpoint already returns full descriptionHtml and descriptionPlain
+        return raw_job
 
     async def normalize(self, raw_job: Dict[str, Any]) -> Dict[str, Any]:
         location = raw_job.get("location", "")
