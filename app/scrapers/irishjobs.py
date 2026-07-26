@@ -93,6 +93,33 @@ class IrishJobsScraper(BaseScraper):
         return all_jobs
 
     async def get_job_details(self, raw_job: Dict[str, Any]) -> Dict[str, Any]:
+        """Fetch full description from the job detail page."""
+        job_url = raw_job.get("job_url", "")
+        if not job_url or raw_job.get("description", ""):
+            # Already has a description or no URL → skip detail fetch
+            return raw_job
+        try:
+            headers = {
+                "User-Agent": self.ua.random,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-GB,en;q=0.9",
+            }
+            async with httpx.AsyncClient(follow_redirects=True, timeout=10.0) as client:
+                resp = await client.get(job_url, headers=headers)
+                if resp.status_code == 200:
+                    soup = BeautifulSoup(resp.text, "html.parser")
+                    # talent.com and IrishJobs typically use these selectors
+                    desc_elem = (
+                        soup.find("div", class_=lambda c: c and "description" in c.lower() if c else False) or
+                        soup.find("div", attrs={"data-testid": "job-description"}) or
+                        soup.find("section", class_=lambda c: c and "description" in c.lower() if c else False) or
+                        soup.find("div", id=lambda i: i and "description" in i.lower() if i else False) or
+                        soup.find("article")
+                    )
+                    if desc_elem:
+                        raw_job["description"] = desc_elem.get_text(separator="\n", strip=True)
+        except Exception as e:
+            logger.debug(f"[IrishJobs] Failed to fetch detail page {job_url}: {e}")
         return raw_job
 
     async def normalize(self, raw_job: Dict[str, Any]) -> Dict[str, Any]:

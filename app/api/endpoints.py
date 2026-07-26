@@ -9,6 +9,34 @@ from bs4 import BeautifulSoup
 
 router = APIRouter()
 
+def clean_description(desc: str) -> str:
+    """
+    Strip HTML tags and remove common job-board 'Show more' button artifacts
+    so we get clean plain text for the description field.
+    """
+    if not desc:
+        return ""
+    # Remove common Show more / Show less button text embedded in HTML
+    desc = re.sub(r'<button[^>]*>.*?</button>', '', desc, flags=re.IGNORECASE | re.DOTALL)
+    # Remove script/style blocks
+    desc = re.sub(r'<(script|style)[^>]*>.*?</\1>', '', desc, flags=re.IGNORECASE | re.DOTALL)
+    # Convert <br>, <p>, <div>, <li>, <h*> to newlines for readability
+    desc = re.sub(r'<br\s*/?>', '\n', desc, flags=re.IGNORECASE)
+    desc = re.sub(r'</(p|div|h[1-6]|li|tr)>', '\n', desc, flags=re.IGNORECASE)
+    desc = re.sub(r'<li[^>]*>', '• ', desc, flags=re.IGNORECASE)
+    # Strip remaining HTML tags
+    desc = re.sub(r'<[^>]+>', '', desc)
+    # Decode HTML entities
+    desc = desc.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&nbsp;', ' ').replace('&#39;', "'").replace('&quot;', '"')
+    # Remove "Show more" / "Show less" text variants
+    desc = re.sub(r'\bShow (more|less|full description|job details?)\b', '', desc, flags=re.IGNORECASE)
+    desc = re.sub(r'\b(See more|See less|Read more|Expand|Collapse)\b', '', desc, flags=re.IGNORECASE)
+    # Clean up excessive whitespace
+    desc = re.sub(r'\n{3,}', '\n\n', desc)
+    desc = re.sub(r'[ \t]{2,}', ' ', desc)
+    return desc.strip()
+
+
 async def enrich_jobs(jobs: List[JobSchema], source: str) -> List[JobSchema]:
     for job in jobs:
         # 1. Company Logo Enrichment
@@ -20,9 +48,19 @@ async def enrich_jobs(jobs: List[JobSchema], source: str) -> List[JobSchema]:
         if source:
             job.source = source.capitalize()
         
-        # 2. Description Enrichment
+        # 2. Clean description of HTML artifacts ("Show more", etc.)
+        if job.description:
+            job.description = clean_description(job.description)
+
+        # 3. Description Enrichment — only if still too short after cleaning
         desc = job.description or ""
-        short_or_generic = len(desc.strip()) < 150 or "Position listed on" in desc or "Position recruited by" in desc or "Click Apply to view" in desc or "No description provided" in desc
+        short_or_generic = (
+            len(desc.strip()) < 150
+            or "Position listed on" in desc
+            or "Position recruited by" in desc
+            or "Click Apply to view" in desc
+            or "No description provided" in desc
+        )
         
         if short_or_generic:
             title_clean = job.title or "Software Professional"
