@@ -49,7 +49,23 @@ class ReedScraper(BaseScraper):
         return all_jobs
 
     async def get_job_details(self, raw_job: Dict[str, Any]) -> Dict[str, Any]:
-        # The search endpoint already returns descriptions for Reed
+        job_id = raw_job.get("jobId")
+        if not job_id:
+            return raw_job
+            
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                response = await client.get(
+                    self.detail_url.format(job_id=job_id),
+                    auth=(self.api_key, "")
+                )
+                if response.status_code == 200:
+                    detail_data = response.json()
+                    # The detail endpoint returns the full jobDescription
+                    raw_job["jobDescription"] = detail_data.get("jobDescription", raw_job.get("jobDescription"))
+            except Exception as e:
+                logger.debug(f"[Reed] Error fetching details for {job_id}: {e}")
+                
         return raw_job
 
     async def normalize(self, raw_job: Dict[str, Any]) -> Dict[str, Any]:
