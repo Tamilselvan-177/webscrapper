@@ -203,8 +203,11 @@ async def fetch_full_description(
     Returns the same raw_job dict with `description` updated in-place.
     """
     existing_desc = (raw_job.get("description") or "").strip()
-    # Already long enough — no need to re-fetch
-    if len(existing_desc) >= min_length:
+    
+    is_truncated = existing_desc.endswith("...") or existing_desc.endswith("…")
+    
+    # Already long enough and doesn't look like a cut-off snippet — no need to re-fetch
+    if len(existing_desc) >= min_length and not is_truncated:
         return raw_job
 
     job_url = raw_job.get("job_url") or raw_job.get("apply_url") or ""
