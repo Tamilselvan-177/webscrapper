@@ -77,34 +77,62 @@ class IndeedScraper(BaseScraper):
         except Exception as e:
             logger.warning(f"[Indeed] Direct HTTP error: {e}")
 
-        # Intelligent Fallback if perimeter defense blocked direct access
+        # Browser Stealth Fallback if direct HTTP was blocked by perimeter defense
         if not all_jobs:
-            logger.info(f"[Indeed] Using API fallback for {keyword} in {location}")
+            logger.info(f"[Indeed] HTTP blocked or failed. Attempting Playwright stealth for listing: {url}")
             try:
-                import os
-                app_id = os.getenv("ADZUNA_APP_ID", "71b0f298")
-                app_key = os.getenv("ADZUNA_APP_KEY", "8f2ce8aef294190f8892004471d453d4")
-                country_code = "gb" if "uk" in location.lower() or "london" in location.lower() or not location else "us"
-                api_url = f"https://api.adzuna.com/v1/api/jobs/{country_code}/search/{page}?app_id={app_id}&app_key={app_key}&what={urllib.parse.quote(keyword)}&results_per_page=15"
-                if location and country_code != location.lower():
-                    api_url += f"&where={urllib.parse.quote(location)}"
+                import asyncio
+                from playwright.async_api import async_playwright
+                from playwright_stealth import Stealth
                 
-                async with httpx.AsyncClient(timeout=8.0) as client:
-                    resp = await client.get(api_url)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        for item in data.get("results", []):
-                            all_jobs.append({
-                                "id": str(item.get("id", "")),
-                                "title": item.get("title", ""),
-                                "company": item.get("company", {}).get("display_name", "Indeed Employer") if isinstance(item.get("company"), dict) else str(item.get("company", "Indeed Employer")),
-                                "location_raw": item.get("location", {}).get("display_name", location) if isinstance(item.get("location"), dict) else location,
-                                "date": item.get("created", "").split("T")[0] if item.get("created") else "",
-                                "job_url": item.get("redirect_url", ""),
-                                "description": item.get("description", "")
-                            })
+                async with async_playwright() as p:
+                    browser = await p.chromium.launch(
+                        headless=True,
+                        args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+                    )
+                    try:
+                        context = await browser.new_context(
+                            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                            viewport={"width": 1366, "height": 768},
+                            locale="en-GB"
+                        )
+                        page = await context.new_page()
+                        await Stealth().apply_stealth_async(page)
+                        await page.goto(url, timeout=20000, wait_until="domcontentloaded")
+                        await asyncio.sleep(5)
+                        html = await page.content()
+                        soup = BeautifulSoup(html, "html.parser")
+                        
+                        job_cards = soup.find_all("div", class_="job_seen_beacon") or soup.find_all("div", attrs={"data-jk": True}) or soup.find_all("div", class_=lambda c: c and "job_seen_beacon" in c)
+                        for card in job_cards:
+                            try:
+                                jk = card.get("data-jk") or card.find(attrs={"data-jk": True})
+                                if hasattr(jk, "get"):
+                                    jk = jk.get("data-jk", "")
+                                id_str = str(jk) if jk else ""
+                                title_elem = card.find("h2", class_="jobTitle") or card.find("span", {"title": True})
+                                title = title_elem.get_text(strip=True) if title_elem else ""
+                                if not title:
+                                    continue
+                                company_elem = card.find("span", attrs={"data-testid": "company-name"}) or card.find(class_="companyName")
+                                company = company_elem.get_text(strip=True) if company_elem else "Indeed Partner"
+                                link_elem = card.find("a", attrs={"data-jk": True}) or card.find("a", class_=lambda c: c and "jcs-JobTitle" in c) or card.find("a", href=True)
+                                href = link_elem.get("href", "") if link_elem else (f"/viewjob?jk={id_str}" if id_str else "")
+                                job_url = href if href.startswith("http") else f"https://uk.indeed.com{href}"
+                                all_jobs.append({
+                                    "id": id_str or str(abs(hash(title + job_url)))[:10],
+                                    "title": title,
+                                    "company": company,
+                                    "location_raw": location,
+                                    "job_url": job_url,
+                                    "description": ""
+                                })
+                            except Exception:
+                                continue
+                    finally:
+                        await browser.close()
             except Exception as e:
-                logger.error(f"[Indeed] Fallback API error: {e}")
+                logger.debug(f"[Indeed] Browser listing fallback error: {e}")
 
         return all_jobs
 

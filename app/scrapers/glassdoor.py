@@ -71,34 +71,67 @@ class GlassdoorScraper(BaseScraper):
         except Exception as e:
             logger.warning(f"[Glassdoor] HTTP error: {e}")
 
-        # Intelligent Fallback if perimeter defense blocked direct access
+        # Browser Stealth Fallback if perimeter defense blocked direct HTTP
         if not all_jobs:
-            logger.info(f"[Glassdoor] Using API fallback for {keyword} in {location}")
+            logger.info(f"[Glassdoor] HTTP blocked or failed. Attempting Playwright stealth for listing: {url}")
             try:
-                import os
-                app_id = os.getenv("ADZUNA_APP_ID", "71b0f298")
-                app_key = os.getenv("ADZUNA_APP_KEY", "8f2ce8aef294190f8892004471d453d4")
-                country_code = "gb" if "uk" in location.lower() or "london" in location.lower() or not location else "us"
-                api_url = f"https://api.adzuna.com/v1/api/jobs/{country_code}/search/{page}?app_id={app_id}&app_key={app_key}&what={urllib.parse.quote(keyword)}&results_per_page=15"
-                if location and country_code != location.lower():
-                    api_url += f"&where={urllib.parse.quote(location)}"
+                import asyncio
+                from playwright.async_api import async_playwright
+                from playwright_stealth import Stealth
                 
-                async with httpx.AsyncClient(timeout=8.0) as client:
-                    resp = await client.get(api_url)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        for item in data.get("results", []):
-                            all_jobs.append({
-                                "id": str(item.get("id", "")),
-                                "title": item.get("title", ""),
-                                "company": item.get("company", {}).get("display_name", "Glassdoor Employer") if isinstance(item.get("company"), dict) else str(item.get("company", "Glassdoor Employer")),
-                                "location_raw": item.get("location", {}).get("display_name", location) if isinstance(item.get("location"), dict) else location,
-                                "date": item.get("created", "").split("T")[0] if item.get("created") else "",
-                                "job_url": item.get("redirect_url", ""),
-                                "description": item.get("description", "")
-                            })
+                async with async_playwright() as p:
+                    browser = await p.chromium.launch(
+                        headless=True,
+                        args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+                    )
+                    try:
+                        context = await browser.new_context(
+                            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                            viewport={"width": 1366, "height": 768},
+                            locale="en-GB"
+                        )
+                        page = await context.new_page()
+                        await Stealth().apply_stealth_async(page)
+                        await page.goto(url, timeout=20000, wait_until="domcontentloaded")
+                        await asyncio.sleep(5)  # Allow Cloudflare challenge resolution
+                        html = await page.content()
+                        soup = BeautifulSoup(html, "html.parser")
+                        
+                        cards = soup.find_all("li", attrs={"data-test": "jobListing"}) or soup.find_all("div", class_=lambda c: c and "JobCard" in c) or soup.find_all("li", class_=lambda c: c and "react-job-listing" in str(c).lower())
+                        if not cards:
+                            cards = [a.parent.parent for a in soup.find_all("a", href=True) if "/partner/jobListing.htm" in a["href"] or "/job-listing/" in a["href"]]
+                        
+                        seen = set()
+                        for c in cards:
+                            try:
+                                a = c.find("a", href=True)
+                                if not a:
+                                    continue
+                                title = a.get_text(strip=True)
+                                href = a["href"]
+                                if not title or len(title) < 3 or title in seen or "glassdoor" in title.lower():
+                                    continue
+                                seen.add(title)
+                                
+                                job_url = href if href.startswith("http") else f"https://www.glassdoor.co.uk{href}"
+                                job_data = {
+                                    "title": title,
+                                    "job_url": job_url,
+                                    "id": str(abs(hash(title + href)))[:10],
+                                    "company": "Glassdoor Partner",
+                                    "location_raw": location,
+                                    "description": ""
+                                }
+                                comp_el = c.find(class_=lambda x: x and ("employer" in str(x).lower() or "company" in str(x).lower() or "employer-name" in str(x).lower()))
+                                if comp_el and len(comp_el.get_text(strip=True)) > 1:
+                                    job_data["company"] = comp_el.get_text(strip=True)
+                                all_jobs.append(job_data)
+                            except Exception:
+                                continue
+                    finally:
+                        await browser.close()
             except Exception as e:
-                logger.error(f"[Glassdoor] Fallback API error: {e}")
+                logger.debug(f"[Glassdoor] Browser listing fallback error: {e}")
 
         return all_jobs
 

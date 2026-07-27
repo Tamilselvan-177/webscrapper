@@ -95,35 +95,6 @@ class SeekScraper(BaseScraper):
             except Exception as e:
                 logger.debug(f"[SEEK] Browser listing fallback error: {e}")
 
-        # Intelligent Fallback if perimeter defense blocked direct access or region mismatch
-        if not all_jobs:
-            logger.info(f"[SEEK] Using API fallback for {keyword} in {location}")
-            try:
-                import os
-                app_id = os.getenv("ADZUNA_APP_ID", "71b0f298")
-                app_key = os.getenv("ADZUNA_APP_KEY", "8f2ce8aef294190f8892004471d453d4")
-                country_code = "gb" if any(k in location.lower() for k in ["london", "uk", "manchester"]) else ("us" if any(k in location.lower() for k in ["us", "usa", "york"]) else "au")
-                api_url = f"https://api.adzuna.com/v1/api/jobs/{country_code}/search/{page}?app_id={app_id}&app_key={app_key}&what={urllib.parse.quote(filters.keyword or 'developer')}&results_per_page=15"
-                if filters.city and country_code != location.lower():
-                    api_url += f"&where={urllib.parse.quote(filters.city)}"
-                
-                async with httpx.AsyncClient(timeout=8.0) as client:
-                    resp = await client.get(api_url)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        for item in data.get("results", []):
-                            all_jobs.append({
-                                "id": str(item.get("id", "")),
-                                "title": item.get("title", ""),
-                                "company": item.get("company", {}).get("display_name", "SEEK Partner") if isinstance(item.get("company"), dict) else str(item.get("company", "SEEK Partner")),
-                                "location_raw": item.get("location", {}).get("display_name", location) if isinstance(item.get("location"), dict) else location,
-                                "date": item.get("created", "").split("T")[0] if item.get("created") else "",
-                                "job_url": item.get("redirect_url", ""),
-                                "salary_text": item.get("description", "")
-                            })
-            except Exception as e:
-                logger.error(f"[SEEK] Fallback API error: {e}")
-
         return all_jobs[:10]
 
     async def get_job_details(self, raw_job: Dict[str, Any]) -> Dict[str, Any]:

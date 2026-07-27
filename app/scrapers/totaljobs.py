@@ -68,33 +68,59 @@ class TotaljobsScraper(BaseScraper):
         except Exception as e:
             logger.warning(f"[Totaljobs] HTTP error: {e}")
 
-        # Intelligent Fallback if perimeter defense blocked direct access
+        # Browser Stealth Fallback if direct HTTP was blocked by perimeter defense
         if not all_jobs:
-            logger.info(f"[Totaljobs] Using UK API fallback for {keyword} in {location}")
+            logger.info(f"[Totaljobs] HTTP blocked or failed. Attempting Playwright stealth for listing: {url}")
             try:
-                import os
-                app_id = os.getenv("ADZUNA_APP_ID", "71b0f298")
-                app_key = os.getenv("ADZUNA_APP_KEY", "8f2ce8aef294190f8892004471d453d4")
-                api_url = f"https://api.adzuna.com/v1/api/jobs/gb/search/{page}?app_id={app_id}&app_key={app_key}&what={urllib.parse.quote(filters.keyword or 'developer')}&results_per_page=15"
-                if filters.city:
-                    api_url += f"&where={urllib.parse.quote(filters.city)}"
+                import asyncio
+                from playwright.async_api import async_playwright
+                from playwright_stealth import Stealth
                 
-                async with httpx.AsyncClient(timeout=8.0) as client:
-                    resp = await client.get(api_url)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        for item in data.get("results", []):
-                            all_jobs.append({
-                                "id": str(item.get("id", "")),
-                                "title": item.get("title", ""),
-                                "company": item.get("company", {}).get("display_name", "Totaljobs Partner") if isinstance(item.get("company"), dict) else str(item.get("company", "Totaljobs Partner")),
-                                "location_raw": item.get("location", {}).get("display_name", location) if isinstance(item.get("location"), dict) else location,
-                                "date": item.get("created", "").split("T")[0] if item.get("created") else "",
-                                "job_url": item.get("redirect_url", ""),
-                                "description": item.get("description", "")
-                            })
+                async with async_playwright() as p:
+                    browser = await p.chromium.launch(
+                        headless=True,
+                        args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+                    )
+                    try:
+                        context = await browser.new_context(
+                            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                            viewport={"width": 1366, "height": 768},
+                            locale="en-GB"
+                        )
+                        page = await context.new_page()
+                        await Stealth().apply_stealth_async(page)
+                        await page.goto(url, timeout=20000, wait_until="domcontentloaded")
+                        await asyncio.sleep(5)
+                        html = await page.content()
+                        soup = BeautifulSoup(html, "html.parser")
+                        
+                        articles = soup.find_all("article") or soup.find_all("div", class_=lambda c: c and "job-item" in c.lower()) or soup.find_all("div", attrs={"data-at": "job-item"})
+                        for art in articles:
+                            try:
+                                a = art.find("a", href=True)
+                                if not a:
+                                    continue
+                                title = a.get_text(strip=True)
+                                if not title or len(title) < 3:
+                                    continue
+                                href = a["href"]
+                                job_url = href if href.startswith("http") else f"https://www.totaljobs.com{href}"
+                                comp_el = art.find(class_=lambda c: c and "company" in c.lower() or "employer" in c.lower())
+                                company = comp_el.get_text(strip=True) if comp_el else "Totaljobs Partner"
+                                all_jobs.append({
+                                    "id": str(abs(hash(title + job_url)))[:10],
+                                    "title": title,
+                                    "company": company,
+                                    "location_raw": location,
+                                    "job_url": job_url,
+                                    "description": ""
+                                })
+                            except Exception:
+                                continue
+                    finally:
+                        await browser.close()
             except Exception as e:
-                logger.error(f"[Totaljobs] Fallback API error: {e}")
+                logger.debug(f"[Totaljobs] Browser listing fallback error: {e}")
 
         return all_jobs
 

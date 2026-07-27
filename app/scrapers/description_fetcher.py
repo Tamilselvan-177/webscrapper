@@ -281,8 +281,8 @@ async def fetch_full_description(
     if not job_url or job_url == "#":
         return raw_job
 
-    # For SEEK, Jora, CareerOne, WorkforceAustralia, always use headless browser due to Cloudflare / 403 blocks
-    if source.lower() in ("seek", "jora", "careerone", "workforceaustralia"):
+    # For SEEK, Jora, CareerOne, WorkforceAustralia, and Glassdoor, always use headless browser due to Cloudflare / 403 / 429 blocks
+    if source.lower() in ("seek", "jora", "careerone", "workforceaustralia", "glassdoor"):
         selector = '[data-automation="jobAdDetails"]' if source.lower() == "seek" else None
         full_text = await fetch_with_browser(job_url, selector=selector, source=source)
         if full_text and len(full_text) > len(existing_desc):
