@@ -18,6 +18,48 @@ class SeekScraper(BaseScraper):
         self.source_name = "SEEK"
         self.ua = UserAgent()
 
+    def _parse_seek_cards(self, soup: BeautifulSoup, location: str) -> List[Dict[str, Any]]:
+        jobs = []
+        job_cards = soup.find_all("article", attrs={"data-automation": "normalJob"}) or soup.find_all("article", attrs={"data-card-type": "JobCard"}) or soup.find_all("article")
+        for card in job_cards:
+            try:
+                job_data = {}
+                title_link = (
+                    card.find("a", attrs={"data-automation": "jobTitle"}) or
+                    card.find("h3") or
+                    card.find("a", href=lambda h: h and "/job/" in str(h))
+                )
+                if not title_link:
+                    continue
+                    
+                job_data["title"] = title_link.get_text(strip=True)
+                href = title_link.get("href", "")
+                if href.startswith("/"):
+                    href = f"https://www.seek.com.au{href}"
+                job_data["job_url"] = href.split("?")[0]
+                parts = job_data["job_url"].split("/")
+                job_data["id"] = parts[-1] if parts else ""
+
+                company_elem = card.find(attrs={"data-automation": "jobCompany"}) or card.find("a", attrs={"data-automation": "jobListingDate"})
+                if not company_elem:
+                    company_elem = card.find("span", class_=lambda c: c and "company" in c.lower() if c else False)
+                job_data["company"] = company_elem.get_text(strip=True) if company_elem else "SEEK Employer"
+
+                loc_elem = card.find(attrs={"data-automation": "jobLocation"}) or card.find(attrs={"data-automation": "jobArea"})
+                job_data["location_raw"] = loc_elem.get_text(strip=True) if loc_elem else location
+
+                date_elem = card.find(attrs={"data-automation": "jobListingDate"}) or card.find("time")
+                job_data["date"] = date_elem.get_text(strip=True) if date_elem else ""
+
+                salary_elem = card.find(attrs={"data-automation": "jobSalary"})
+                job_data["salary_text"] = salary_elem.get_text(strip=True) if salary_elem else ""
+
+                if job_data.get("title") and job_data.get("id"):
+                    jobs.append(job_data)
+            except Exception:
+                continue
+        return jobs
+
     async def get_jobs(self, filters: SearchFilters, page: int = 1) -> List[Dict[str, Any]]:
         all_jobs = []
         keyword = "-".join(filter(None, [filters.keyword, filters.company])).replace(" ", "-").lower() or "developer"
@@ -38,50 +80,20 @@ class SeekScraper(BaseScraper):
                 resp = await client.get(url)
                 if resp.status_code == 200:
                     soup = BeautifulSoup(resp.text, "html.parser")
-                    job_cards = soup.find_all("article", attrs={"data-automation": "normalJob"}) or soup.find_all("article", attrs={"data-card-type": "JobCard"}) or soup.find_all("article")
-
-                    for card in job_cards:
-                        try:
-                            job_data = {}
-                            title_link = (
-                                card.find("a", attrs={"data-automation": "jobTitle"}) or
-                                card.find("h3") or
-                                card.find("a", href=lambda h: h and "/job/" in str(h))
-                            )
-                            if not title_link:
-                                continue
-                                
-                            job_data["title"] = title_link.get_text(strip=True)
-
-                            href = title_link.get("href", "")
-                            if href.startswith("/"):
-                                href = f"https://www.seek.com.au{href}"
-                            job_data["job_url"] = href.split("?")[0]
-
-                            parts = job_data["job_url"].split("/")
-                            job_data["id"] = parts[-1] if parts else ""
-
-                            company_elem = card.find(attrs={"data-automation": "jobCompany"}) or card.find("a", attrs={"data-automation": "jobListingDate"})
-                            if not company_elem:
-                                company_elem = card.find("span", class_=lambda c: c and "company" in c.lower() if c else False)
-                            job_data["company"] = company_elem.get_text(strip=True) if company_elem else "SEEK Employer"
-
-                            loc_elem = card.find(attrs={"data-automation": "jobLocation"}) or card.find(attrs={"data-automation": "jobArea"})
-                            job_data["location_raw"] = loc_elem.get_text(strip=True) if loc_elem else location
-
-                            date_elem = card.find(attrs={"data-automation": "jobListingDate"}) or card.find("time")
-                            job_data["date"] = date_elem.get_text(strip=True) if date_elem else ""
-
-                            salary_elem = card.find(attrs={"data-automation": "jobSalary"})
-                            job_data["salary_text"] = salary_elem.get_text(strip=True) if salary_elem else ""
-
-                            if job_data.get("title") and job_data.get("id"):
-                                all_jobs.append(job_data)
-
-                        except Exception:
-                            continue
+                    all_jobs = self._parse_seek_cards(soup, location)
         except Exception as e:
             logger.warning(f"[SEEK] HTTP Error: {e}")
+
+        if not all_jobs:
+            logger.info(f"[SEEK] HTTP failed or blocked. Using browser stealth for listing: {url}")
+            try:
+                from app.scrapers.description_fetcher import fetch_with_browser
+                html = await fetch_with_browser(url, source="seek")
+                if html:
+                    soup = BeautifulSoup(html, "html.parser")
+                    all_jobs = self._parse_seek_cards(soup, location)
+            except Exception as e:
+                logger.debug(f"[SEEK] Browser listing fallback error: {e}")
 
         # Intelligent Fallback if perimeter defense blocked direct access or region mismatch
         if not all_jobs:

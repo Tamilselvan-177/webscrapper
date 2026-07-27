@@ -236,13 +236,22 @@ async def fetch_with_browser(url: str, selector: Optional[str] = None, source: s
                     if selector:
                         elem = soup.select_one(selector)
                         if elem:
-                            return _clean_html(str(elem))
+                            text = _clean_html(str(elem))
+                            if len(text) > 200:
+                                return text
                     
                     full_text = _extract_from_soup(soup, source)
                     if not full_text and source.lower() in ("seek", "jora", "careerone", "workforceaustralia"):
                         elem = soup.select_one('[data-automation="jobAdDetails"]') or soup.select_one('.jobDetailsContainer') or soup.select_one('.job-description')
                         if elem:
                             full_text = _clean_html(str(elem))
+                    
+                    if not full_text:
+                        full_text = _extract_from_soup(soup, "__fallback__")
+                        if not full_text:
+                            elem = soup.select_one('main') or soup.select_one('article') or soup.select_one('body')
+                            if elem:
+                                full_text = _clean_html(str(elem))
                     
                     return full_text or ""
                 finally:
