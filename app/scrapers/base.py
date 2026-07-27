@@ -37,14 +37,28 @@ class BaseScraper(ABC):
             raw_jobs = await self.get_jobs(filters)
             
             import asyncio
-            sem = asyncio.Semaphore(15)  # Limit concurrent requests to avoid instant bans
+            sem = asyncio.Semaphore(8)  # 2 requests per job (listing + detail) — keep below rate limits
 
             async def process_job(raw_job):
                 async with sem:
                     try:
                         # Some ATS require fetching details separately
                         job_detail = await self.get_job_details(raw_job)
-                        
+
+                        # ── Full description fetch ──────────────────────────
+                        # If the listing page only gave us a snippet (or nothing),
+                        # visit the job's detail URL and extract the full text.
+                        try:
+                            from app.scrapers.description_fetcher import fetch_full_description
+                            job_detail = await fetch_full_description(
+                                job_detail,
+                                source=self.source_name,
+                                min_length=300,
+                            )
+                        except Exception as _desc_err:
+                            logger.debug(f"[{self.source_name}] desc fetch skipped: {_desc_err}")
+                        # ───────────────────────────────────────────────────
+
                         # Normalize to dict
                         job_dict = await self.normalize(job_detail)
                         
