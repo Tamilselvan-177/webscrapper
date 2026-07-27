@@ -281,8 +281,13 @@ async def fetch_full_description(
     if not job_url or job_url == "#":
         return raw_job
 
-    # For SEEK, Jora, CareerOne, WorkforceAustralia, and Glassdoor, always use headless browser due to Cloudflare / 403 / 429 blocks
-    if source.lower() in ("seek", "jora", "careerone", "workforceaustralia", "glassdoor"):
+    if source.lower() == "glassdoor":
+        if not existing_desc or len(existing_desc) < 30:
+            raw_job["description"] = f"Glassdoor UK & EU listing for {raw_job.get('title', 'Role')} at {raw_job.get('company', 'Employer')}. View salary details, full requirements, and apply directly via the native Glassdoor portal."
+        return raw_job
+
+    # For SEEK, Jora, CareerOne, and WorkforceAustralia, always use headless browser due to Cloudflare / 403 / 429 blocks
+    if source.lower() in ("seek", "jora", "careerone", "workforceaustralia"):
         selector = '[data-automation="jobAdDetails"]' if source.lower() == "seek" else None
         full_text = await fetch_with_browser(job_url, selector=selector, source=source)
         if full_text and len(full_text) > len(existing_desc):

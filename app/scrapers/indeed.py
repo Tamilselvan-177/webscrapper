@@ -9,11 +9,17 @@ from fake_useragent import UserAgent
 
 logger = logging.getLogger(__name__)
 
+
 class IndeedScraper(BaseScraper):
     """
-    Indeed Scraper (also powers Monster, Workopolis via affiliate mappings).
-    Uses HTTP client with intelligent fallback to Adzuna REST API if Cloudflare/Akamai blocks direct access.
+    Indeed Scraper (also powers Monster, Workopolis via factory mappings).
+
+    Strategy:
+    1. Try direct HTTP with proxy + realistic headers
+    2. If blocked by Cloudflare Turnstile → use anti-detect browser with proxy
+    3. Browser waits for Cloudflare challenge to resolve (up to 30s)
     """
+
     def __init__(self):
         super().__init__()
         self.source_name = "Indeed"
@@ -29,112 +35,135 @@ class IndeedScraper(BaseScraper):
 
         url = f"{self.base_url}?q={urllib.parse.quote(keyword)}&l={urllib.parse.quote(location)}&start={start}"
 
-        try:
-            logger.info(f"[Indeed] Fetching via HTTP: {url}")
-            headers = {
-                'User-Agent': self.ua.random,
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-            }
-            async with httpx.AsyncClient(timeout=8.0, follow_redirects=True, headers=headers) as client:
-                resp = await client.get(url)
-                if resp.status_code == 200:
-                    soup = BeautifulSoup(resp.text, "html.parser")
-                    job_cards = soup.find_all("div", class_="job_seen_beacon") or soup.find_all("div", attrs={"data-jk": True}) or soup.find_all("div", class_=lambda c: c and "job_seen_beacon" in c)
-                    
-                    for card in job_cards:
-                        try:
-                            job_data = {}
-                            jk = card.get("data-jk") or card.find(attrs={"data-jk": True})
-                            if hasattr(jk, "get"):
-                                jk = jk.get("data-jk", "")
-                            job_data["id"] = str(jk) if jk else ""
+        # ── Step 1: Try direct HTTP with proxy ──
+        logger.info(f"[Indeed] Attempting HTTP: {url}")
+        all_jobs = await self._fetch_via_http(url, location)
 
-                            title_elem = card.find("h2", class_="jobTitle") or card.find("span", {"title": True})
-                            job_data["title"] = title_elem.get_text(strip=True) if title_elem else ""
+        if all_jobs:
+            logger.info(f"[Indeed] HTTP returned {len(all_jobs)} jobs")
+            return all_jobs
 
-                            company_elem = card.find("span", attrs={"data-testid": "company-name"}) or card.find(class_="companyName")
-                            job_data["company"] = company_elem.get_text(strip=True) if company_elem else "Indeed Partner"
-
-                            loc_elem = card.find("div", attrs={"data-testid": "text-location"}) or card.find(class_="companyLocation")
-                            job_data["location_raw"] = loc_elem.get_text(strip=True) if loc_elem else location
-
-                            date_elem = card.find("span", attrs={"data-testid": "myJobsStateDate"}) or card.find(class_="date")
-                            job_data["date"] = date_elem.get_text(strip=True) if date_elem else ""
-
-                            if job_data["id"]:
-                                job_data["job_url"] = f"https://www.indeed.com/viewjob?jk={job_data['id']}"
-                            else:
-                                link = card.find("a", href=True)
-                                job_data["job_url"] = "https://www.indeed.com" + link["href"] if link else ""
-
-                            if job_data.get("title") and job_data.get("id"):
-                                all_jobs.append(job_data)
-                        except Exception:
-                            continue
-        except Exception as e:
-            logger.warning(f"[Indeed] Direct HTTP error: {e}")
-
-        # Browser Stealth Fallback if direct HTTP was blocked by perimeter defense
-        if not all_jobs:
-            logger.info(f"[Indeed] HTTP blocked or failed. Attempting Playwright stealth for listing: {url}")
-            try:
-                import asyncio
-                from playwright.async_api import async_playwright
-                from playwright_stealth import Stealth
-                
-                async with async_playwright() as p:
-                    browser = await p.chromium.launch(
-                        headless=True,
-                        args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
-                    )
-                    try:
-                        context = await browser.new_context(
-                            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                            viewport={"width": 1366, "height": 768},
-                            locale="en-GB"
-                        )
-                        page = await context.new_page()
-                        await Stealth().apply_stealth_async(page)
-                        await page.goto(url, timeout=20000, wait_until="domcontentloaded")
-                        await asyncio.sleep(5)
-                        html = await page.content()
-                        soup = BeautifulSoup(html, "html.parser")
-                        
-                        job_cards = soup.find_all("div", class_="job_seen_beacon") or soup.find_all("div", attrs={"data-jk": True}) or soup.find_all("div", class_=lambda c: c and "job_seen_beacon" in c)
-                        for card in job_cards:
-                            try:
-                                jk = card.get("data-jk") or card.find(attrs={"data-jk": True})
-                                if hasattr(jk, "get"):
-                                    jk = jk.get("data-jk", "")
-                                id_str = str(jk) if jk else ""
-                                title_elem = card.find("h2", class_="jobTitle") or card.find("span", {"title": True})
-                                title = title_elem.get_text(strip=True) if title_elem else ""
-                                if not title:
-                                    continue
-                                company_elem = card.find("span", attrs={"data-testid": "company-name"}) or card.find(class_="companyName")
-                                company = company_elem.get_text(strip=True) if company_elem else "Indeed Partner"
-                                link_elem = card.find("a", attrs={"data-jk": True}) or card.find("a", class_=lambda c: c and "jcs-JobTitle" in c) or card.find("a", href=True)
-                                href = link_elem.get("href", "") if link_elem else (f"/viewjob?jk={id_str}" if id_str else "")
-                                job_url = href if href.startswith("http") else f"https://uk.indeed.com{href}"
-                                all_jobs.append({
-                                    "id": id_str or str(abs(hash(title + job_url)))[:10],
-                                    "title": title,
-                                    "company": company,
-                                    "location_raw": location,
-                                    "job_url": job_url,
-                                    "description": ""
-                                })
-                            except Exception:
-                                continue
-                    finally:
-                        await browser.close()
-            except Exception as e:
-                logger.debug(f"[Indeed] Browser listing fallback error: {e}")
+        # ── Step 2: Anti-detect browser fallback ──
+        logger.info(f"[Indeed] HTTP blocked/empty. Trying anti-detect browser: {url}")
+        all_jobs = await self._fetch_via_browser(url, location, keyword)
 
         return all_jobs
+
+    async def _fetch_via_http(self, url: str, location: str) -> List[Dict[str, Any]]:
+        """Attempt to fetch jobs via direct HTTP with proxy support."""
+        jobs = []
+        try:
+            from app.core.proxy_client import ProxyHTTPClient
+            client = ProxyHTTPClient(timeout=12.0)
+            resp = await client.get(url)
+            await client.close()
+
+            if resp.status_code != 200:
+                logger.info(f"[Indeed] HTTP got {resp.status_code}")
+                return []
+
+            # Check for Cloudflare challenge page
+            body_lower = resp.text[:3000].lower()
+            if any(m in body_lower for m in ["just a moment", "cf-turnstile", "checking your browser", "__cf_chl"]):
+                logger.info("[Indeed] Cloudflare challenge detected in HTTP response")
+                return []
+
+            return self._parse_jobs(resp.text, location)
+
+        except Exception as e:
+            logger.warning(f"[Indeed] HTTP error: {e}")
+            return []
+
+    async def _fetch_via_browser(self, url: str, location: str, keyword: str) -> List[Dict[str, Any]]:
+        """Fetch jobs using anti-detect browser with Cloudflare challenge waiting."""
+        try:
+            from app.core.anti_detect_browser import AntiDetectBrowser
+
+            async with AntiDetectBrowser(locale="en-GB", timeout=30000) as browser:
+                html, challenge = await browser.fetch_page(url, challenge_wait=35)
+
+                if challenge:
+                    logger.warning(f"[Indeed] Browser still blocked: {challenge}")
+                    # Try alternative: search on uk.indeed.com
+                    alt_url = url.replace("indeed.com", "uk.indeed.com")
+                    html, challenge = await browser.fetch_page(alt_url, challenge_wait=35)
+
+                if not html:
+                    logger.warning("[Indeed] Browser returned no HTML")
+                    return []
+
+                if challenge:
+                    logger.warning(f"[Indeed] Browser still blocked after retry: {challenge}")
+                    return []
+
+                return self._parse_jobs(html, location)
+
+        except Exception as e:
+            logger.error(f"[Indeed] Browser error: {e}")
+            return []
+
+    def _parse_jobs(self, html: str, location: str) -> List[Dict[str, Any]]:
+        """Parse Indeed job listings from HTML."""
+        jobs = []
+        soup = BeautifulSoup(html, "html.parser")
+
+        job_cards = (
+            soup.find_all("div", class_="job_seen_beacon")
+            or soup.find_all("div", attrs={"data-jk": True})
+            or soup.find_all("div", class_=lambda c: c and "job_seen_beacon" in c)
+        )
+
+        for card in job_cards:
+            try:
+                job_data = {}
+
+                # Extract job key (jk)
+                jk = card.get("data-jk") or ""
+                if not jk:
+                    jk_elem = card.find(attrs={"data-jk": True})
+                    if jk_elem:
+                        jk = jk_elem.get("data-jk", "")
+                job_data["id"] = str(jk) if jk else ""
+
+                # Title
+                title_elem = card.find("h2", class_="jobTitle") or card.find("span", {"title": True})
+                job_data["title"] = title_elem.get_text(strip=True) if title_elem else ""
+
+                # Company
+                company_elem = card.find("span", attrs={"data-testid": "company-name"}) or card.find(class_="companyName")
+                job_data["company"] = company_elem.get_text(strip=True) if company_elem else "Indeed Partner"
+
+                # Location
+                loc_elem = card.find("div", attrs={"data-testid": "text-location"}) or card.find(class_="companyLocation")
+                job_data["location_raw"] = loc_elem.get_text(strip=True) if loc_elem else location
+
+                # Date
+                date_elem = card.find("span", attrs={"data-testid": "myJobsStateDate"}) or card.find(class_="date")
+                job_data["date"] = date_elem.get_text(strip=True) if date_elem else ""
+
+                # URL
+                if job_data["id"]:
+                    job_data["job_url"] = f"https://www.indeed.com/viewjob?jk={job_data['id']}"
+                else:
+                    link = card.find("a", href=True)
+                    if link:
+                        href = link["href"]
+                        job_data["job_url"] = href if href.startswith("http") else f"https://www.indeed.com{href}"
+                    else:
+                        job_data["job_url"] = ""
+
+                # Salary
+                salary_elem = card.find("div", class_="salary-snippet-container") or card.find("span", class_="salaryText")
+                job_data["salary"] = salary_elem.get_text(strip=True) if salary_elem else ""
+
+                if job_data.get("title") and (job_data.get("id") or job_data.get("job_url")):
+                    jobs.append(job_data)
+
+            except Exception as e:
+                logger.debug(f"[Indeed] Error parsing card: {e}")
+                continue
+
+        return jobs
 
     async def get_job_details(self, raw_job: Dict[str, Any]) -> Dict[str, Any]:
         return raw_job
@@ -167,5 +196,5 @@ class IndeedScraper(BaseScraper):
             "close_time": None,
             "source": self.source_name,
             "company_logo": None,
-            "applicants": None
+            "applicants": None,
         }

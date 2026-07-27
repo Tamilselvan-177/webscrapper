@@ -39,7 +39,9 @@ class GlassdoorScraper(BaseScraper):
                 resp = await client.get(url)
                 if resp.status_code == 200:
                     soup = BeautifulSoup(resp.text, "html.parser")
-                    links = soup.find_all("a", attrs={"data-test": lambda d: d and "job" in d.lower()}) or soup.find_all("a", href=lambda h: h and "/partner/jobListing.htm" in h)
+                    links = soup.find_all("a", attrs={"data-test": lambda d: d and "job" in str(d).lower()})
+                    if not links:
+                        links = [a for a in soup.find_all("a", href=True) if any(k in a["href"] for k in ["/partner/jobListing.htm", "/job-listing/", "jl="])]
                     
                     seen = set()
                     for l in links:
@@ -56,7 +58,7 @@ class GlassdoorScraper(BaseScraper):
                                 "id": str(abs(hash(title + href)))[:10],
                                 "company": "Glassdoor Partner",
                                 "location_raw": location,
-                                "description": ""
+                                "description": f"Glassdoor UK & EU listing for {title}. View salary details, full requirements, and apply directly via the native Glassdoor portal."
                             }
                             
                             card = l.find_parent("li") or l.find_parent("div", class_=lambda c: c and any(x in c.lower() for x in ["card", "item", "result"]))
@@ -120,7 +122,7 @@ class GlassdoorScraper(BaseScraper):
                                     "id": str(abs(hash(title + href)))[:10],
                                     "company": "Glassdoor Partner",
                                     "location_raw": location,
-                                    "description": ""
+                                    "description": f"Glassdoor UK & EU listing for {title}. View salary details, full requirements, and apply directly via the native Glassdoor portal."
                                 }
                                 comp_el = c.find(class_=lambda x: x and ("employer" in str(x).lower() or "company" in str(x).lower() or "employer-name" in str(x).lower()))
                                 if comp_el and len(comp_el.get_text(strip=True)) > 1:
