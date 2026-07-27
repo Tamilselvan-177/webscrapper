@@ -13,7 +13,10 @@ class LeverScraper(BaseScraper):
         self.source_name = "Lever"
         self.base_url = "https://api.lever.co/v0/postings"
         self.client = HTTPClient(base_url=self.base_url)
-        self.default_companies = ["palantir", "sentry", "auth0", "kpmg", "retina", "plaid", "netflix", "spotify"]
+        self.default_companies = [
+            "palantir", "sentry", "auth0", "kpmg", "retina", "plaid",
+            "netflix", "spotify", "stripe", "airbnb", "vercel", "linear"
+        ]
 
     async def _fetch_company_jobs(self, comp: str, filters: SearchFilters) -> List[Dict[str, Any]]:
         params = {"mode": "json"}
@@ -28,13 +31,14 @@ class LeverScraper(BaseScraper):
                     if not isinstance(job, dict):
                         continue
                     if filters.keyword:
-                        kw = filters.keyword.lower()
+                        kw_words = filters.keyword.lower().split()
                         title = job.get("text", "").lower()
                         desc = job.get("descriptionPlain", "").lower()
-                        if kw not in title and kw not in desc:
+                        # Accept if ANY keyword word appears in title or description
+                        if not any(w in title or w in desc for w in kw_words):
                             continue
                     valid_jobs.append(job)
-                return valid_jobs
+                return valid_jobs[:20]  # Cap per company
         except Exception as e:
             logger.debug(f"[Lever] Could not fetch for {comp}: {e}")
         return []
@@ -49,7 +53,7 @@ class LeverScraper(BaseScraper):
         
         # If no specific company or default 'lever', query top active tech companies in parallel
         logger.info(f"[Lever] Querying default active companies for keyword: {filters.keyword}")
-        tasks = [self._fetch_company_jobs(comp, filters) for comp in self.default_companies[:5]]
+        tasks = [self._fetch_company_jobs(comp, filters) for comp in self.default_companies]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         combined_jobs = []
@@ -61,7 +65,7 @@ class LeverScraper(BaseScraper):
         if not combined_jobs:
             combined_jobs = await self._fetch_company_jobs("palantir", SearchFilters(source="lever"))
             
-        return combined_jobs[:30]
+        return combined_jobs[:40]
 
     async def get_job_details(self, raw_job: Dict[str, Any]) -> Dict[str, Any]:
         return raw_job

@@ -1,108 +1,118 @@
+import asyncio
+import httpx
+import logging
 from typing import List, Dict, Any
+from bs4 import BeautifulSoup
 from app.scrapers.base import BaseScraper
 from app.models.filters import SearchFilters
-from app.core.http_client import HTTPClient
-from bs4 import BeautifulSoup
+
+logger = logging.getLogger(__name__)
 
 class SmartRecruitersScraper(BaseScraper):
+    """
+    SmartRecruiters ATS Scraper using httpx.
+    Queries a pool of known companies when no company slug is given.
+    """
+    BASE = "https://api.smartrecruiters.com/v1/companies"
+    DEFAULT_COMPANIES = [
+        "smartrecruiters", "visa", "equinox", "fresenius", "colliers",
+        "ubisoft", "square", "biogen", "skechers"
+    ]
+
     def __init__(self):
         super().__init__()
         self.source_name = "SmartRecruiters"
-        self.base_url = "https://api.smartrecruiters.com/v1/companies"
-        self.client = HTTPClient(base_url=self.base_url)
+        self.current_company = "Zalando"
+
+    async def _fetch_company_jobs(self, company: str, filters: SearchFilters) -> List[Dict[str, Any]]:
+        url = f"{self.BASE}/{company}/postings"
+        params: dict = {"limit": 50}
+        if filters.keyword:
+            params["q"] = filters.keyword
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                resp = await client.get(url, params=params, headers={"Accept": "application/json"})
+                if resp.status_code != 200:
+                    logger.debug(f"[SmartRecruiters] {company} returned {resp.status_code}")
+                    return []
+                data = resp.json()
+                jobs = data.get("content", [])
+                for j in jobs:
+                    j["_company"] = company
+                return jobs[:15]
+        except Exception as e:
+            logger.debug(f"[SmartRecruiters] Error fetching {company}: {e}")
+            return []
 
     async def get_jobs(self, filters: SearchFilters, page: int = 1) -> List[Dict[str, Any]]:
-        company = filters.company.lower() if filters.company else "smartrecruiters"
-        self.current_company = company 
-        
-        all_jobs = []
-        offset = 0
-        limit = 100
-        
-        while True:
-            url = f"/{company}/postings"
-            params = {"offset": offset, "limit": limit}
-            if filters.keyword:
-                params["q"] = filters.keyword
-            # SmartRecruiters API doesn't filter perfectly by location or department without specific IDs in some versions,
-            # so we fetch and filter locally if it's complex.
-            
-            response = await self.client.get(url, params=params)
-            data = response.json()
-            content = data.get("content", [])
-            
-            if not content:
-                break
-                
-            all_jobs.extend(content)
-            
-            total_found = data.get("totalFound", 0)
-            offset += limit
-            if offset >= total_found:
-                break
-                
-        # Local Filtering for robustness
-        filtered_jobs = []
-        for job in all_jobs:
-            if filters.country:
-                job_country = job.get("location", {}).get("country", "").lower()
-                if filters.country.lower() not in job_country:
-                    continue
-            if filters.city:
-                job_city = job.get("location", {}).get("city", "").lower()
-                if filters.city.lower() not in job_city:
-                    continue
-            filtered_jobs.append(job)
-            
-        return filtered_jobs
+        company = (filters.company or "").strip()
+        if company and company.lower() not in ("smartrecruiters", ""):
+            self.current_company = company
+            return await self._fetch_company_jobs(company, filters)
+
+        # Query default pool in parallel
+        logger.info(f"[SmartRecruiters] Querying default pool for: {filters.keyword}")
+        tasks = [self._fetch_company_jobs(c, filters) for c in self.DEFAULT_COMPANIES]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        combined = []
+        for res in results:
+            if isinstance(res, list):
+                combined.extend(res)
+        return combined[:40]
 
     async def get_job_details(self, raw_job: Dict[str, Any]) -> Dict[str, Any]:
+        company = raw_job.get("_company", self.current_company)
         job_id = raw_job.get("id")
-        url = f"/{self.current_company}/postings/{job_id}"
-        response = await self.client.get(url)
-        return response.json()
+        if not job_id:
+            return raw_job
+        try:
+            url = f"{self.BASE}/{company}/postings/{job_id}"
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                resp = await client.get(url, headers={"Accept": "application/json"})
+                if resp.status_code == 200:
+                    raw_job.update(resp.json())
+        except Exception as e:
+            logger.debug(f"[SmartRecruiters] Detail fetch failed: {e}")
+        return raw_job
 
     async def normalize(self, raw_job: Dict[str, Any]) -> Dict[str, Any]:
-        location = raw_job.get("location", {})
-        
-        # Build unified description from sections
-        job_ad = raw_job.get("jobAd", {})
-        sections = job_ad.get("sections", {})
-        
+        location = raw_job.get("location") or {}
+        company_name = raw_job.get("_company", self.current_company)
+
+        job_ad = raw_job.get("jobAd") or {}
+        sections = job_ad.get("sections") or {}
         desc_parts = []
         for section_name in ["companyDescription", "jobDescription", "qualifications", "additionalInformation"]:
-            section = sections.get(section_name, {})
+            section = sections.get(section_name) or {}
             title = section.get("title", "")
             text = section.get("text", "")
             if text:
                 if title:
-                    desc_parts.append(f"<h2>{title}</h2>")
+                    desc_parts.append(f"## {title}")
                 desc_parts.append(text)
-                
         full_html = "\n".join(desc_parts)
-        
         soup = BeautifulSoup(full_html, "html.parser")
-        clean_description = soup.get_text(separator="\n", strip=True)
-        
-        remote = raw_job.get("location", {}).get("remote", False)
+        description = soup.get_text(separator="\n", strip=True)
 
         return {
-            "id": raw_job.get("id", ""),
+            "id": str(raw_job.get("id", "")),
             "title": raw_job.get("name", ""),
-            "company": self.current_company.capitalize(),
+            "company": company_name.capitalize(),
             "country": location.get("country", ""),
             "state": location.get("region", ""),
             "city": location.get("city", ""),
-            "remote": remote,
-            "employment_type": raw_job.get("typeOfEmployment", {}).get("label"),
+            "remote": location.get("remote", False),
+            "employment_type": (raw_job.get("typeOfEmployment") or {}).get("label"),
             "salary_min": None,
             "salary_max": None,
             "currency": None,
-            "job_url": f"https://jobs.smartrecruiters.com/{self.current_company}/{raw_job.get('id')}",
-            "apply_url": f"https://jobs.smartrecruiters.com/{self.current_company}/{raw_job.get('id')}?apply=true",
-            "description": clean_description,
+            "job_url": f"https://jobs.smartrecruiters.com/{company_name}/{raw_job.get('id')}",
+            "apply_url": f"https://jobs.smartrecruiters.com/{company_name}/{raw_job.get('id')}?apply=true",
+            "description": description,
             "posted_date": raw_job.get("releasedDate", ""),
             "open_time": raw_job.get("releasedDate", ""),
             "close_time": raw_job.get("expirationDate"),
-            "source": self.source_name
+            "source": self.source_name,
+            "company_logo": None,
+            "applicants": None,
         }
