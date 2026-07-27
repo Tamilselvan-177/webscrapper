@@ -36,6 +36,13 @@ SELECTORS: Dict[str, List[str]] = {
         '[id*="jobDescription"]',
         ".job-description",
     ],
+    "adzuna": [
+        ".job-description",
+        '[class*="description"]',
+        '[id*="description"]',
+        "article.job-listing",
+        "main article",
+    ],
     "glassdoor": [
         '[class*="JobDetails_jobDescription"]',
         '[data-test="description"]',

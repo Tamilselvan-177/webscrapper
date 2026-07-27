@@ -44,6 +44,11 @@ class AdzunaScraper(BaseScraper):
         except Exception as e:
             logger.error(f"[Adzuna] API Error: {e}")
 
+        # Add job_url so description_fetcher.py can visit the actual job page for full text
+        for job in all_jobs:
+            if job.get("redirect_url") and not job.get("job_url"):
+                job["job_url"] = job["redirect_url"]
+
         return all_jobs
 
     async def get_job_details(self, raw_job: Dict[str, Any]) -> Dict[str, Any]:

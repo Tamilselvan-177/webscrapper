@@ -53,7 +53,7 @@ class BaseScraper(ABC):
                             job_detail = await fetch_full_description(
                                 job_detail,
                                 source=self.source_name,
-                                min_length=300,
+                                min_length=500,
                             )
                         except Exception as _desc_err:
                             logger.debug(f"[{self.source_name}] desc fetch skipped: {_desc_err}")
