@@ -14,8 +14,8 @@ class PersonioScraper(BaseScraper):
     Each company has its own Personio subdomain: {company}.jobs.personio.de
     """
     DEFAULT_COMPANIES = [
-        "personio", "sumup", "n26", "flixbus", "kfzteile24",
-        "idealo", "aboutyou", "commercetools", "raisin", "adjust"
+        "channable", "orderbird", "clark", 
+        "pitch", "smava", "homeday", "voya"
     ]
 
     def __init__(self):
@@ -28,7 +28,7 @@ class PersonioScraper(BaseScraper):
         try:
             async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
                 resp = await client.get(url)
-                if resp.status_code != 200:
+                if resp.status_code != 200 or "<position>" not in resp.text:
                     return []
                 root = ET.fromstring(resp.text)
                 all_jobs = []
@@ -46,9 +46,13 @@ class PersonioScraper(BaseScraper):
                         else:
                             job_dict[child.tag] = child.text
                     if filters.keyword:
-                        kw_words = filters.keyword.lower().split()
+                        kw = filters.keyword.lower()
                         title = (job_dict.get("name") or "").lower()
-                        if not any(w in title for w in kw_words):
+                        dept = (job_dict.get("department") or "").lower()
+                        tech_syns = ["develop", "engineer", "software", "dev", "program", "cod", "backend", "frontend", "fullstack", "data", "cloud", "tech"]
+                        is_tech_search = any(t in kw for t in tech_syns)
+                        has_tech_title = any(t in title or t in dept for t in tech_syns)
+                        if not (any(w in title or w in dept for w in kw.split()) or (is_tech_search and has_tech_title)):
                             continue
                     all_jobs.append(job_dict)
                 return all_jobs[:15]

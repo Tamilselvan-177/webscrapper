@@ -37,10 +37,12 @@ class GreenhouseScraper(BaseScraper):
                 jobs = data.get("jobs", [])
                 # Keyword filter
                 if filters.keyword:
-                    kw_words = filters.keyword.lower().split()
+                    kw = filters.keyword.lower()
+                    tech_syns = ["develop", "engineer", "software", "dev", "program", "cod", "backend", "frontend", "fullstack", "data", "cloud", "tech"]
+                    is_tech = any(t in kw for t in tech_syns)
                     jobs = [
                         j for j in jobs
-                        if any(w in j.get("title", "").lower() for w in kw_words)
+                        if any(w in j.get("title", "").lower() for w in kw.split()) or (is_tech and any(t in j.get("title", "").lower() for t in tech_syns))
                     ]
                 # Tag each job with the company
                 for j in jobs:

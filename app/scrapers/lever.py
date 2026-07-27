@@ -31,11 +31,13 @@ class LeverScraper(BaseScraper):
                     if not isinstance(job, dict):
                         continue
                     if filters.keyword:
-                        kw_words = filters.keyword.lower().split()
+                        kw = filters.keyword.lower()
                         title = job.get("text", "").lower()
                         desc = job.get("descriptionPlain", "").lower()
-                        # Accept if ANY keyword word appears in title or description
-                        if not any(w in title or w in desc for w in kw_words):
+                        tech_syns = ["develop", "engineer", "software", "dev", "program", "cod", "backend", "frontend", "fullstack", "data", "cloud", "tech"]
+                        is_tech_search = any(t in kw for t in tech_syns)
+                        has_tech_title = any(t in title or t in desc for t in tech_syns)
+                        if not (any(w in title or w in desc for w in kw.split()) or (is_tech_search and has_tech_title)):
                             continue
                     valid_jobs.append(job)
                 return valid_jobs[:20]  # Cap per company
