@@ -112,7 +112,7 @@ class SeekScraper(BaseScraper):
             except Exception as e:
                 logger.error(f"[SEEK] Fallback API error: {e}")
 
-        return all_jobs
+        return all_jobs[:10]
 
     async def get_job_details(self, raw_job: Dict[str, Any]) -> Dict[str, Any]:
         return raw_job
@@ -139,7 +139,7 @@ class SeekScraper(BaseScraper):
             "currency": "AUD" if country == "Australia" else "GBP",
             "job_url": raw_job.get("job_url", ""),
             "apply_url": raw_job.get("job_url", ""),
-            "description": raw_job.get("salary_text", f"Professional position listed on SEEK in {city}."),
+            "description": raw_job.get("description") or raw_job.get("salary_text", f"Professional position listed on SEEK in {city}."),
             "posted_date": raw_job.get("date", ""),
             "open_time": raw_job.get("date", ""),
             "close_time": None,

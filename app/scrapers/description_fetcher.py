@@ -17,6 +17,7 @@ Usage in any scraper's get_job_details():
 """
 
 import re
+import asyncio
 import logging
 import httpx
 from bs4 import BeautifulSoup
@@ -186,7 +187,69 @@ def _extract_from_soup(soup: BeautifulSoup, source: str) -> Optional[str]:
                     return text
         except Exception:
             continue
-    return None
+_browser_sem = None
+def _get_browser_sem():
+    global _browser_sem
+    if _browser_sem is None:
+        _browser_sem = asyncio.Semaphore(3)  # Max 3 concurrent headless browsers
+    return _browser_sem
+
+
+async def fetch_with_browser(url: str, selector: Optional[str] = None, source: str = "") -> str:
+    """
+    Launches headless Chromium with Playwright Stealth evasions to bypass bot detection (Cloudflare, etc.)
+    and extracts full job description text from rendered pages (SEEK, Jora, etc.).
+    """
+    if not url or url == "#":
+        return ""
+    try:
+        from playwright.async_api import async_playwright
+        from playwright_stealth import Stealth
+    except ImportError:
+        logger.warning("[DescFetcher:browser] Playwright or playwright_stealth not installed.")
+        return ""
+
+    try:
+        sem = _get_browser_sem()
+        async with sem:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+                )
+                try:
+                    context = await browser.new_context(
+                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                        viewport={"width": 1280, "height": 800},
+                        locale="en-AU" if source.lower() in ("seek", "jora", "careerone", "workforceaustralia") else "en-US"
+                    )
+                    page = await context.new_page()
+                    await Stealth().apply_stealth_async(page)
+                    
+                    logger.info(f"[DescFetcher:browser] Navigating to {url}")
+                    await page.goto(url, timeout=18000, wait_until="domcontentloaded")
+                    await asyncio.sleep(1.5)  # Wait for JS hydration and Cloudflare challenge resolution
+                    
+                    html = await page.content()
+                    soup = BeautifulSoup(html, "html.parser")
+                    
+                    if selector:
+                        elem = soup.select_one(selector)
+                        if elem:
+                            return _clean_html(str(elem))
+                    
+                    full_text = _extract_from_soup(soup, source)
+                    if not full_text and source.lower() in ("seek", "jora", "careerone", "workforceaustralia"):
+                        elem = soup.select_one('[data-automation="jobAdDetails"]') or soup.select_one('.jobDetailsContainer') or soup.select_one('.job-description')
+                        if elem:
+                            full_text = _clean_html(str(elem))
+                    
+                    return full_text or ""
+                finally:
+                    await browser.close()
+    except Exception as e:
+        logger.debug(f"[DescFetcher:browser] Error fetching {url}: {e}")
+        return ""
 
 
 async def fetch_full_description(
@@ -196,22 +259,26 @@ async def fetch_full_description(
 ) -> Dict[str, Any]:
     """
     Fetch the full job description from the job detail page.
-
-    If the raw_job already has a description longer than `min_length`
-    characters we skip the fetch (it's already complete).
-
-    Returns the same raw_job dict with `description` updated in-place.
+    Automatically uses headless browser stealth for Cloudflare protected portals (SEEK, Jora, etc.)
+    or when standard HTTP requests encounter perimeter defense blocks.
     """
     existing_desc = (raw_job.get("description") or "").strip()
-    
     is_truncated = existing_desc.endswith("...") or existing_desc.endswith("…")
     
-    # Already long enough and doesn't look like a cut-off snippet — no need to re-fetch
     if len(existing_desc) >= min_length and not is_truncated:
         return raw_job
 
     job_url = raw_job.get("job_url") or raw_job.get("apply_url") or ""
     if not job_url or job_url == "#":
+        return raw_job
+
+    # For SEEK, Jora, CareerOne, WorkforceAustralia, always use headless browser due to Cloudflare / 403 blocks
+    if source.lower() in ("seek", "jora", "careerone", "workforceaustralia"):
+        selector = '[data-automation="jobAdDetails"]' if source.lower() == "seek" else None
+        full_text = await fetch_with_browser(job_url, selector=selector, source=source)
+        if full_text and len(full_text) > len(existing_desc):
+            logger.info(f"[DescFetcher:{source}] Fetched full description via browser ({len(full_text)} chars)")
+            raw_job["description"] = full_text
         return raw_job
 
     headers = {
@@ -229,6 +296,13 @@ async def fetch_full_description(
             headers=headers,
         ) as client:
             resp = await client.get(job_url)
+            if resp.status_code in (403, 401, 429, 503):
+                logger.debug(f"[DescFetcher:{source}] HTTP {resp.status_code} blocked. Falling back to browser stealth.")
+                full_text = await fetch_with_browser(job_url, source=source)
+                if full_text and len(full_text) > len(existing_desc):
+                    raw_job["description"] = full_text
+                return raw_job
+
             if resp.status_code != 200:
                 logger.debug(f"[DescFetcher:{source}] HTTP {resp.status_code} for {job_url}")
                 return raw_job
@@ -243,9 +317,10 @@ async def fetch_full_description(
                 )
                 raw_job["description"] = full_text
             else:
-                logger.debug(
-                    f"[DescFetcher:{source}] No better description found at {job_url}"
-                )
+                logger.debug(f"[DescFetcher:{source}] No text > 200 chars found via HTTP. Trying browser.")
+                full_text = await fetch_with_browser(job_url, source=source)
+                if full_text and len(full_text) > len(existing_desc):
+                    raw_job["description"] = full_text
 
     except httpx.TimeoutException:
         logger.debug(f"[DescFetcher:{source}] Timeout fetching {job_url}")
